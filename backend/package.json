@@ -1,0 +1,36 @@
+{
+  "name": "playnix-backend",
+  "version": "1.0.0",
+  "description": "Playnix AWS backend — subscription management via Razorpay + DynamoDB",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "ddb:install": "serverless dynamodb install",
+    "ddb:start": "serverless dynamodb start",
+    "test": "node src/services/referral.verify.js && node src/services/razorpay.verify.js",
+    "test:referral": "node src/services/referral.verify.js",
+    "test:razorpay": "node src/services/razorpay.verify.js",
+    "deploy": "serverless deploy --stage dev",
+    "deploy:prod": "serverless deploy --stage prod"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "razorpay": "^2.9.2",
+    "serverless-http": "^3.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4",
+    "serverless": "^3.38.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "serverless-dynamodb": "^0.2.58",
+    "serverless-offline": "^13.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

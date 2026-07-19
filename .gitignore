@@ -1,4 +1,4 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+﻿# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
 # dependencies
 node_modules/
@@ -30,7 +30,13 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (never commit secrets)
+.env
+.env.dev
+.env.prod
+backend/.env
+backend/.env.dev
+backend/.env.prod
 .env*.local
 
 # typescript
@@ -39,3 +45,26 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+# Local DynamoDB (huge JARs - never commit)
+backend/.dynamodb/
+backend/node_modules/
+
+# UI dumps / scratch
+dump_*.xml
+dump_ui.js
+
+# Build / caches
+*.apk
+*.aab
+.gradle/
+**/build/
+!src/**/build/
+
+# Agent / IDE
+.cursor/
+agent-transcripts/
+
+# Accidental media dumps
+assets/WhatsApp*.jpeg
+assets/WhatsApp*.jpg
+
