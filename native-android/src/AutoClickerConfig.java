@@ -26,11 +26,12 @@ public final class AutoClickerConfig {
   public static final int MODE_PRICE = 0;
   public static final int MODE_DISTANCE = 1;
 
-  private static final AtomicBoolean enabled = new AtomicBoolean(true);
+  /** Default OFF — JS turns on only while subscription is active. */
+  private static final AtomicBoolean enabled = new AtomicBoolean(false);
   private static final AtomicBoolean nuclearMode = new AtomicBoolean(true);
   /**
-   * Deprecated continuous FG spray (MeClicker path wins). Default OFF —
-   * Nuclear means fast Accept detect/click, not 5ms spray.
+   * Continuous FG spray — HARD OFF. MeClicker hunt→click→micro-burst only.
+   * Pref ignored; API always reports/stores false.
    */
   private static final AtomicBoolean continuousForegroundTap = new AtomicBoolean(false);
   private static final AtomicInteger minPrice = new AtomicInteger(0);
@@ -81,7 +82,22 @@ public final class AutoClickerConfig {
     filterMode.set(prefs.getInt("filter_mode", MODE_PRICE));
     maxPickup.set(prefs.getFloat("max_pickup", 99f));
     maxDrop.set(prefs.getFloat("max_drop", 0f));
-    continuousForegroundTap.set(prefs.getBoolean("continuous_fg_tap", false));
+    continuousForegroundTap.set(false); // HARD OFF — ignore stale pref
+    minPrice.set(Math.max(0, prefs.getInt("min_price", 0)));
+    nuclearMode.set(prefs.getBoolean("nuclear_mode", true));
+    enabled.set(prefs.getBoolean("enabled", false));
+    delayMs.set(Math.max(0, prefs.getInt("delay_ms", 0)));
+    // Persist defaults on first run so a11y/NLS/JS share the same prefs file
+    if (!prefs.contains("enabled") || !prefs.contains("nuclear_mode")
+        || prefs.getBoolean("continuous_fg_tap", false)) {
+      prefs.edit()
+          .putBoolean("enabled", enabled.get())
+          .putBoolean("nuclear_mode", nuclearMode.get())
+          .putBoolean("continuous_fg_tap", false)
+          .putInt("min_price", minPrice.get())
+          .putInt("delay_ms", delayMs.get())
+          .apply();
+    }
   }
 
   public static Context getAppContext() {
@@ -94,6 +110,8 @@ public final class AutoClickerConfig {
 
   public static void setEnabled(boolean value) {
     enabled.set(value);
+    SharedPreferences p = prefs;
+    if (p != null) p.edit().putBoolean("enabled", value).apply();
   }
 
   public static boolean isNuclearMode() {
@@ -102,6 +120,8 @@ public final class AutoClickerConfig {
 
   public static void setNuclearMode(boolean value) {
     nuclearMode.set(value);
+    SharedPreferences p = prefs;
+    if (p != null) p.edit().putBoolean("nuclear_mode", value).apply();
   }
 
   public static boolean isContinuousForegroundTap() {
@@ -109,9 +129,10 @@ public final class AutoClickerConfig {
   }
 
   public static void setContinuousForegroundTap(boolean value) {
-    continuousForegroundTap.set(value);
+    // HARD OFF — ignore enable attempts (MeClicker path only)
+    continuousForegroundTap.set(false);
     SharedPreferences p = prefs;
-    if (p != null) p.edit().putBoolean("continuous_fg_tap", value).apply();
+    if (p != null) p.edit().putBoolean("continuous_fg_tap", false).apply();
   }
 
   public static int getMinPrice() {
@@ -119,7 +140,10 @@ public final class AutoClickerConfig {
   }
 
   public static void setMinPrice(int value) {
-    minPrice.set(Math.max(0, value));
+    int v = Math.max(0, value);
+    minPrice.set(v);
+    SharedPreferences p = prefs;
+    if (p != null) p.edit().putInt("min_price", v).apply();
   }
 
   public static int getDelayMs() {
@@ -127,7 +151,10 @@ public final class AutoClickerConfig {
   }
 
   public static void setDelayMs(int value) {
-    delayMs.set(Math.max(0, value));
+    int v = Math.max(0, value);
+    delayMs.set(v);
+    SharedPreferences p = prefs;
+    if (p != null) p.edit().putInt("delay_ms", v).apply();
   }
 
   public static int getFilterMode() {
@@ -262,6 +289,26 @@ public final class AutoClickerConfig {
 
   public static boolean hasCachedTapPoint(String packageName) {
     return packageName != null && cachedTapByPackage.containsKey(packageName);
+  }
+
+  /** Drop in-memory + prefs tap caches so post-Accept we never re-spray stale coords. */
+  public static void clearCachedTapPoints(String packageName) {
+    if (packageName == null) {
+      cachedTapByPackage.clear();
+      cachedOverlayTapByPackage.clear();
+      return;
+    }
+    cachedTapByPackage.remove(packageName);
+    cachedOverlayTapByPackage.remove(packageName);
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit()
+          .remove("tap_x_" + packageName)
+          .remove("tap_y_" + packageName)
+          .remove("overlay_tap_x_" + packageName)
+          .remove("overlay_tap_y_" + packageName)
+          .apply();
+    }
   }
 
   public static boolean tryAcquireClickLock(long debounceMs) {

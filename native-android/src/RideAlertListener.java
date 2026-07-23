@@ -51,12 +51,13 @@ public class RideAlertListener extends NotificationListenerService {
       return;
     }
 
-    if (DEBUG_LOG) {
-      Log.i(TAG, "NLS_RIDE_PING pkg=" + pkg
-          + " ongoing=" + sbn.isOngoing()
-          + " rideLike=" + rideLike);
-    }
+    // Race first — PendingIntent fires sync inside onRideSignal before hunt
     AutoClickerService.onRideSignal(pkg, sbn.getNotification(), text, tReceive, "NLS");
+    Log.w(TAG, "NLS_POST pkg=" + pkg
+        + " ongoing=" + sbn.isOngoing()
+        + " rideLike=" + rideLike
+        + " nuclear=" + AutoClickerConfig.isNuclearMode()
+        + " textLen=" + (text != null ? text.length() : 0));
   }
 
   private static boolean looksLikeRide(String text) {

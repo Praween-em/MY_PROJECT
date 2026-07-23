@@ -34,7 +34,7 @@ export default function ProfileScreen({ navigation }) {
   }, []);
 
   const handleCopyCode = async () => {
-    const message = `Join Playnix! Use my referral code ${referralCode} when you sign up. Auto-accept rides faster!`;
+    const message = `Join SUPER RIDEX! Use my referral code ${referralCode} when you sign up. Auto-accept rides faster!`;
     try {
       await Share.share({ message });
     } catch {
@@ -51,7 +51,7 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <Screen edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Profile</Text>
       </View>
@@ -112,7 +112,7 @@ export default function ProfileScreen({ navigation }) {
         {/* Referral Program */}
         <View style={styles.referralHeader}>
           <View style={[styles.sectionBar, { backgroundColor: colors.purple }]} />
-          <Text style={[styles.sectionTitle, { color: colors.purpleBright }]}>Referral Program</Text>
+          <Text style={[styles.sectionTitle, { color: colors.icy }]}>Referral Program</Text>
         </View>
 
         <View style={styles.referralCard}>
@@ -186,13 +186,13 @@ const styles = StyleSheet.create({
   scroll: { padding: 20, gap: 16, paddingBottom: 40 },
 
   userCard: {
-    backgroundColor: colors.surface, borderRadius: 20, padding: 20,
-    borderWidth: 1, borderColor: colors.borderPurple, gap: 12,
+    backgroundColor: colors.surface, borderRadius: 14, padding: 20,
+    borderWidth: 1, borderColor: colors.border, gap: 12,
   },
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatar: {
-    width: 60, height: 60, borderRadius: 30, backgroundColor: colors.purpleGlow,
-    borderWidth: 2, borderColor: colors.borderPurple, alignItems: 'center', justifyContent: 'center',
+    width: 60, height: 60, borderRadius: 30, backgroundColor: colors.surfaceLight,
+    borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center',
   },
   avatarGlyph: { fontSize: 28 },
   userMeta: { flex: 1 },
@@ -212,18 +212,18 @@ const styles = StyleSheet.create({
   quickRow: { flexDirection: 'row', gap: 10 },
   quickBtn: {
     flex: 1, alignItems: 'center', gap: 6, paddingVertical: 16,
-    backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.borderPurple,
+    backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
   },
   quickBtnIcon: { fontSize: 22 },
-  quickBtnText: { fontSize: 12, fontWeight: '700', color: colors.purpleBright },
+  quickBtnText: { fontSize: 12, fontWeight: '600', color: colors.icyDim },
 
   referralHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sectionBar: { width: 4, height: 20, borderRadius: 2 },
-  sectionTitle: { fontSize: 14, fontWeight: '800', letterSpacing: 1 },
+  sectionTitle: { fontSize: 14, fontWeight: '700', letterSpacing: 0.5 },
 
   referralCard: {
-    backgroundColor: colors.surface, borderRadius: 20, padding: 20,
-    borderWidth: 1, borderColor: colors.borderPurple, gap: 14,
+    backgroundColor: colors.surface, borderRadius: 14, padding: 20,
+    borderWidth: 1, borderColor: colors.border, gap: 14,
   },
   referralReward: { fontSize: 14, color: colors.icyDim, lineHeight: 22 },
   rewardHighlight: { color: colors.onGreen, fontWeight: '900' },

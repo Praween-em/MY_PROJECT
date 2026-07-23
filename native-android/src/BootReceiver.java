@@ -17,7 +17,10 @@ public class BootReceiver extends BroadcastReceiver {
   public void onReceive(Context context, Intent intent) {
     if (intent == null || intent.getAction() == null) return;
     if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
-      Log.i(TAG, "Device booted — auto-clicker config preserved in memory will reset until app opens");
+      AutoClickerConfig.init(context);
+      Log.w(TAG, "BOOT_COMPLETED enabled=" + AutoClickerConfig.isEnabled()
+          + " nuclear=" + AutoClickerConfig.isNuclearMode()
+          + " minPrice=" + AutoClickerConfig.getMinPrice());
     }
   }
 }

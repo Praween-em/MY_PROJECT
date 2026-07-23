@@ -1,14 +1,13 @@
 /**
- * index.js — Express app
+ * index.js — Express app (Postgres + Razorpay + Admin)
  */
 
 const path = require('path');
 const fs = require('fs');
 
-// Load .env.dev or .env for local/Docker (Lambda gets vars from serverless deploy)
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
   const root = path.join(__dirname, '..');
-  const envFile = ['.env.dev', '.env'].map((f) => path.join(root, f)).find((p) => fs.existsSync(p));
+  const envFile = ['.env', '.env.dev'].map((f) => path.join(root, f)).find((p) => fs.existsSync(p));
   if (envFile) {
     require('dotenv').config({ path: envFile });
   }
@@ -20,12 +19,15 @@ const cors = require('cors');
 const subscriptionRoutes = require('./routes/subscription');
 const webhookRoutes = require('./routes/webhook');
 const referralRoutes = require('./routes/referral');
+const entitlementRoutes = require('./routes/entitlement');
+const adminRoutes = require('./routes/admin');
+const authRoutes = require('./routes/auth');
+const { ping } = require('./config/db');
 
 const app = express();
 
 app.use(cors({ origin: '*' }));
 
-// Capture raw body for Razorpay webhook HMAC while still parsing JSON for handlers
 app.use(express.json({
   verify: (req, _res, buf) => {
     if (req.originalUrl.startsWith('/webhook')) {
@@ -34,16 +36,36 @@ app.use(express.json({
   },
 }));
 
+app.use('/auth', authRoutes);
 app.use('/subscription', subscriptionRoutes);
 app.use('/referral', referralRoutes);
+app.use('/entitlement', entitlementRoutes);
 app.use('/webhook', webhookRoutes);
+app.use('/admin/api', adminRoutes);
 
-app.get('/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
+// Simple admin panel (static)
+app.use('/admin', express.static(path.join(__dirname, '../admin-panel')));
+app.get('/admin', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../admin-panel/index.html'));
+});
 
-// Standalone server mode (Docker / EC2)
+app.get('/health', async (_req, res) => {
+  let dbOk = false;
+  try {
+    dbOk = await ping();
+  } catch {
+    dbOk = false;
+  }
+  res.status(dbOk ? 200 : 503).json({
+    status: dbOk ? 'ok' : 'degraded',
+    db: dbOk,
+    ts: new Date().toISOString(),
+  });
+});
+
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => console.log(`Playnix backend on port ${PORT}`));
+  app.listen(PORT, () => console.log(`SUPER RIDEX backend on port ${PORT}`));
 }
 
 module.exports = app;

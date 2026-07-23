@@ -25,8 +25,8 @@ const RAZORPAY_KEY_ID = process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_XXX
  * planConfig maps plan IDs to display names and amounts (in paise).
  */
 export const PLAN_CONFIG = {
-  monthly:   { label: '1 Month',   amount: 29900, description: '30-day access to Playnix' },
-  quarterly: { label: '3 Months',  amount: 67500, description: '90-day access to Playnix' },
+  monthly:   { label: '1 Month',   amount: 29900, description: '30-day access to Super Rides' },
+  quarterly: { label: '3 Months',  amount: 67500, description: '90-day access to Super Rides' },
 };
 
 /**
@@ -54,7 +54,7 @@ export async function openCheckout(planId, phone) {
     order_id: orderId,
     amount,
     currency: currency || 'INR',
-    name: 'Playnix',
+    name: 'Super Rides',
     description: plan.description,
     prefill: { contact: phone },
     theme: { color: '#00FF7F' },

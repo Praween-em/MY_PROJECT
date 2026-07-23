@@ -1,45 +1,45 @@
 export const colors = {
-  // ── Backgrounds ──────────────────────────────────────────────────────────────
-  background:   '#0E0428',   // deep indigo-violet (matches purple/blue palette)
-  surface:      '#160B38',   // dark violet surface
-  surfaceLight: '#1F1045',   // elevated card bg
-  surfaceCard:  '#1A0D3D',   // slightly lighter card
+  // ── Backgrounds (light professional) ────────────────────────────────────────
+  background:   '#F4F7FB',   // soft blue-white
+  surface:      '#FFFFFF',   // elevated surface
+  surfaceLight: '#EEF3F9',   // card / input fill
+  surfaceCard:  '#FFFFFF',   // card
 
-  // ── Brand ─────────────────────────────────────────────────────────────────────
-  purple:       '#A020F0',   // neon purple
-  purpleBright: '#C44DFF',   // lighter neon purple
-  purpleDim:    '#6B0FBB',   // dark purple
-  purpleGlow:   '#A020F018', // purple tint for glow backgrounds
+  // ── Brand accent (professional blue — keys kept for existing call sites) ────
+  purple:       '#1565C0',   // primary professional blue
+  purpleBright: '#1E88E5',   // lighter blue for icons / highlights
+  purpleDim:    '#0D47A1',   // darker blue
+  purpleGlow:   '#1565C018', // subtle blue wash
 
-  blue:         '#00B4FF',   // electric blue
-  blueBright:   '#33CCFF',   // light electric blue
-  blueDim:      '#0077CC',   // dark electric blue
-  blueGlow:     '#00B4FF18', // blue tint
+  blue:         '#1976D2',   // secondary blue
+  blueBright:   '#42A5F5',   // lighter secondary
+  blueDim:      '#0D47A1',   // dark blue
+  blueGlow:     '#1976D218', // subtle blue wash
 
-  // ── Icy White ─────────────────────────────────────────────────────────────────
-  icy:          '#E8F0FF',   // icy white (primary text / highlights)
-  icyDim:       '#B0C4DE',   // light steel blue — secondary text
-  icyMuted:     '#5A6A90',   // muted lavender — placeholder / tertiary
+  // ── Text ─────────────────────────────────────────────────────────────────────
+  icy:          '#1A2332',   // primary text (dark on light)
+  icyDim:       '#5A6A7A',   // secondary text
+  icyMuted:     '#8A9AAA',   // tertiary / placeholder
 
   // ── Borders ───────────────────────────────────────────────────────────────────
-  border:       '#1E0840',   // default subtle border
-  borderPurple: '#A020F055', // purple glow border
-  borderBlue:   '#00B4FF55', // blue glow border
-  borderIcy:    '#E8F0FF22', // icy white subtle border
+  border:       '#E2E8F0',   // default subtle border
+  borderPurple: '#1565C044', // blue accent border
+  borderBlue:   '#1976D255', // secondary blue border
+  borderIcy:    '#1A233218', // faint dark border
 
   // ── On / Off (app-wide toggles) ─────────────────────────────────────────────
-  onGreen:      '#22C55E',
-  onGreenDim:   '#22C55E22',
-  offRed:       '#EF4444',
-  offRedDim:    '#EF444422',
+  onGreen:      '#16A34A',
+  onGreenDim:   '#16A34A18',
+  offRed:       '#DC2626',
+  offRedDim:    '#DC262618',
 
   // ── Semantic ──────────────────────────────────────────────────────────────────
-  success:      '#22C55E',
-  successDim:   '#22C55E22',
-  danger:       '#EF4444',
-  dangerDim:    '#FF336618',
-  warning:      '#FFB800',
-  warningDim:   '#FFB80018',
+  success:      '#16A34A',
+  successDim:   '#16A34A18',
+  danger:       '#DC2626',
+  dangerDim:    '#DC262618',
+  warning:      '#D97706',
+  warningDim:   '#D9770618',
 
   white:        '#FFFFFF',
   black:        '#000000',

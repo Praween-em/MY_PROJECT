@@ -1,8 +1,8 @@
 /**
- * auth.js — lightweight phone-based auth middleware
+ * auth.js — phone + optional deviceId middleware
  *
- * For this version: the app sends the phone number as a Bearer token.
- * In production, replace with a signed JWT issued after OTP verification.
+ * Mobile app sends phone as Bearer token / body / query / x-phone.
+ * deviceId from body / query / x-device-id.
  */
 
 function requirePhone(req, res, next) {
@@ -27,4 +27,44 @@ function requirePhone(req, res, next) {
   next();
 }
 
-module.exports = { requirePhone };
+function readDeviceId(req) {
+  return (
+    req.body?.deviceId ||
+    req.query?.deviceId ||
+    req.headers['x-device-id'] ||
+    null
+  );
+}
+
+function readDeviceLabel(req) {
+  return (
+    req.body?.deviceLabel ||
+    req.query?.deviceLabel ||
+    req.headers['x-device-label'] ||
+    null
+  );
+}
+
+function optionalDevice(req, _res, next) {
+  req.deviceId = readDeviceId(req);
+  req.deviceLabel = readDeviceLabel(req);
+  next();
+}
+
+function requireDevice(req, res, next) {
+  const deviceId = readDeviceId(req);
+  if (!deviceId || String(deviceId).length < 8) {
+    return res.status(400).json({ message: 'Valid deviceId required', code: 'DEVICE_REQUIRED' });
+  }
+  req.deviceId = deviceId;
+  req.deviceLabel = readDeviceLabel(req);
+  next();
+}
+
+module.exports = {
+  requirePhone,
+  optionalDevice,
+  requireDevice,
+  readDeviceId,
+  readDeviceLabel,
+};

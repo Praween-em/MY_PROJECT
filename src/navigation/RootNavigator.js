@@ -1,17 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-
-import Screen from '../components/Screen';
+import * as SplashScreen from 'expo-splash-screen';
 
 import LoginScreen from '../screens/LoginScreen';
 import PlansScreen from '../screens/PlansScreen';
 import PermissionsSetupScreen from '../screens/PermissionsSetupScreen';
+import LoadingScreen from '../screens/LoadingScreen';
 import MainTabs from './MainTabs';
 import { getStoredUser } from '../utils/storage';
-import { colors } from '../theme/colors';
 
 const Stack = createNativeStackNavigator();
 
@@ -22,6 +20,7 @@ function resolveInitialRoute(user) {
 
 export default function RootNavigator() {
   const [initialRoute, setInitialRoute] = useState(null);
+  const [splashHidden, setSplashHidden] = useState(false);
 
   useEffect(() => {
     getStoredUser()
@@ -29,18 +28,32 @@ export default function RootNavigator() {
       .catch(() => setInitialRoute('Login'));
   }, []);
 
+  const hideNativeSplash = useCallback(async () => {
+    if (splashHidden) return;
+    try {
+      await SplashScreen.hideAsync();
+    } catch {
+      // ignore — splash may already be gone
+    } finally {
+      setSplashHidden(true);
+    }
+  }, [splashHidden]);
+
+  // Once the branded loading UI has laid out, hide the native splash under it.
+  const onLoadingReady = useCallback(() => {
+    hideNativeSplash();
+  }, [hideNativeSplash]);
+
   if (!initialRoute) {
     return (
       <SafeAreaProvider>
-        <Screen style={styles.boot}>
-          <ActivityIndicator size="large" color={colors.purple} />
-        </Screen>
+        <LoadingScreen onReady={onLoadingReady} />
       </SafeAreaProvider>
     );
   }
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider onLayout={hideNativeSplash}>
       <NavigationContainer>
         <Stack.Navigator
           initialRouteName={initialRoute}
@@ -55,10 +68,3 @@ export default function RootNavigator() {
     </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  boot: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

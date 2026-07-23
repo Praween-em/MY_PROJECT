@@ -12,7 +12,7 @@ import { getStoredUser, clearUser } from '../utils/storage';
 import { usePermissions } from '../hooks/usePermissions';
 import AppSwitch from '../components/AppSwitch';
 
-const DELAYS = [0, 50, 100, 150, 250, 500];
+const DELAYS = [0, 50, 100];
 
 function SectionLabel({ children }) {
   return (
@@ -43,9 +43,7 @@ function SettingRow({ icon, title, sub, subColor, onPress, right, separator = tr
 
 export default function SettingsScreen({ navigation }) {
   const { status: permStatus } = usePermissions();
-  const [haptic, setHaptic] = useState(true);
   const [notifications, setNotifications] = useState(true);
-  const [autoStart, setAutoStart] = useState(false);
   const [delay, setDelay] = useState(0);
   const [phone, setPhone] = useState('');
 
@@ -66,7 +64,7 @@ export default function SettingsScreen({ navigation }) {
 
   return (
     <Screen edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Settings</Text>
       </View>
@@ -106,18 +104,6 @@ export default function SettingsScreen({ navigation }) {
               </TouchableOpacity>
             ))}
           </View>
-          <View style={styles.separator} />
-          <SettingRow
-            icon={<Ionicons name="pulse-outline" size={18} color={colors.purpleBright} />} title="Haptic Feedback"
-            sub="Vibrate when a ride is accepted"
-            right={<AppSwitch value={haptic} onValueChange={setHaptic} />}
-          />
-          <SettingRow
-            icon={<Ionicons name="rocket-outline" size={18} color={colors.purpleBright} />} title="Auto-start on Boot"
-            sub="Restart monitoring after device reboot"
-            separator={false}
-            right={<AppSwitch value={autoStart} onValueChange={setAutoStart} />}
-          />
         </View>
 
         <SectionLabel>Notifications</SectionLabel>

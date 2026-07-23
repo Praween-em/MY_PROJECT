@@ -31,20 +31,34 @@ const ACCESSIBILITY_XML = `<?xml version="1.0" encoding="utf-8"?>
 function copyNativeSources(projectRoot, platformRoot) {
   const srcDir = path.join(projectRoot, 'native-android', 'src');
   const destDir = path.join(platformRoot, JAVA_DIR);
-  if (!fs.existsSync(srcDir)) return;
+  if (!fs.existsSync(srcDir)) {
+    console.warn('[withAutoClicker] missing native-android/src — skip Java sync');
+    return;
+  }
 
   fs.mkdirSync(destDir, { recursive: true });
+  let copied = 0;
   for (const file of JAVA_FILES) {
     const from = path.join(srcDir, file);
     const to = path.join(destDir, file);
-    if (fs.existsSync(from)) {
-      fs.copyFileSync(from, to);
+    if (!fs.existsSync(from)) {
+      console.warn(`[withAutoClicker] missing source ${file}`);
+      continue;
     }
+    fs.copyFileSync(from, to);
+    copied++;
   }
+  console.log(`[withAutoClicker] synced ${copied}/${JAVA_FILES.length} Java files → ${JAVA_DIR}`);
 
   const xmlDir = path.join(platformRoot, 'app/src/main/res/xml');
   fs.mkdirSync(xmlDir, { recursive: true });
-  fs.writeFileSync(path.join(xmlDir, 'accessibility_service_config.xml'), ACCESSIBILITY_XML);
+  const xmlPath = path.join(xmlDir, 'accessibility_service_config.xml');
+  fs.writeFileSync(xmlPath, ACCESSIBILITY_XML);
+  // Guard: prebuild must keep gesture capability (Smart Auto Clicker style)
+  const xml = fs.readFileSync(xmlPath, 'utf8');
+  if (!xml.includes('canPerformGestures="true"') || !xml.includes('notificationTimeout="0"')) {
+    throw new Error('[withAutoClicker] accessibility_service_config.xml missing required flags');
+  }
 }
 
 function withAutoClickerManifest(config) {
@@ -54,6 +68,23 @@ function withAutoClickerManifest(config) {
     app.service = app.service ?? [];
 
     const hasA11y = app.service.some((s) => s.$?.['android:name'] === '.AutoClickerService');
+    // Ensure FGS special-use type on existing or new a11y service (low-RAM survival)
+    const a11ySvc = app.service.find((s) => s.$?.['android:name'] === '.AutoClickerService');
+    if (a11ySvc?.$) {
+      a11ySvc.$['android:foregroundServiceType'] = 'specialUse';
+      a11ySvc.property = a11ySvc.property ?? [];
+      const hasProp = a11ySvc.property.some(
+        (p) => p.$?.['android:name'] === 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE'
+      );
+      if (!hasProp) {
+        a11ySvc.property.push({
+          $: {
+            'android:name': 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE',
+            'android:value': 'accessibility_race_engine',
+          },
+        });
+      }
+    }
     if (!hasA11y) {
       app.service.push({
         $: {
@@ -61,6 +92,7 @@ function withAutoClickerManifest(config) {
           'android:exported': 'true',
           'android:label': '@string/app_name',
           'android:permission': 'android.permission.BIND_ACCESSIBILITY_SERVICE',
+          'android:foregroundServiceType': 'specialUse',
         },
         'intent-filter': [
           {
@@ -75,6 +107,14 @@ function withAutoClickerManifest(config) {
             },
           },
         ],
+        property: [
+          {
+            $: {
+              'android:name': 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE',
+              'android:value': 'accessibility_race_engine',
+            },
+          },
+        ],
       });
     }
 
@@ -84,7 +124,7 @@ function withAutoClickerManifest(config) {
         $: {
           'android:name': '.RideAlertListener',
           'android:exported': 'true',
-          'android:label': 'Playnix Ride Alerts',
+          'android:label': 'Super Rides Alerts',
           'android:permission': 'android.permission.BIND_NOTIFICATION_LISTENER_SERVICE',
         },
         'intent-filter': [
@@ -131,7 +171,7 @@ function withAutoClickerStrings(config) {
       ),
       {
         $: { name: 'accessibility_service_description' },
-        _: 'Playnix monitors ride requests in Ola, Uber and other driver apps and automatically taps Accept when the fare meets your minimum price.',
+        _: 'Super Rides monitors ride requests in Ola, Uber and other driver apps and automatically taps Accept when the fare meets your minimum price.',
       },
     ];
     return mod;

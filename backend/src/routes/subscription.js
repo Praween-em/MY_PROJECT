@@ -1,12 +1,14 @@
 /**
- * subscription.js — subscription routes
+ * subscription.js — subscription routes (Postgres)
  */
 
 const express = require('express');
 const router = express.Router();
-const { requirePhone } = require('../middleware/auth');
+const { requirePhone, optionalDevice, requireDevice } = require('../middleware/auth');
 const { createOrder, verifySignature, getOrderNotes, VALID_PLANS } = require('../services/razorpay');
 const { ensureUser, activateSubscription, getUserByPhone } = require('../models/user');
+const { assertDeviceAllowed, checkEntitlement, DeviceLimitError } = require('../models/device');
+const { isSubscriptionActive } = require('../models/mapUser');
 
 router.post('/create-order', requirePhone, async (req, res) => {
   try {
@@ -22,7 +24,7 @@ router.post('/create-order', requirePhone, async (req, res) => {
     } catch (dbErr) {
       console.error('ensureUser after create-order:', dbErr);
       return res.status(503).json({
-        message: 'Order created but user database unavailable. Configure AWS credentials or deploy backend.',
+        message: 'Order created but user database unavailable. Set DATABASE_URL and run migrations.',
         orderId: order.orderId,
         amount: order.amount,
         currency: order.currency,
@@ -74,24 +76,63 @@ router.post('/verify-payment', requirePhone, async (req, res) => {
   }
 });
 
-router.get('/status', requirePhone, async (req, res) => {
+router.get('/status', requirePhone, optionalDevice, async (req, res) => {
   try {
-    const user = await getUserByPhone(req.phone);
+    if (req.deviceId) {
+      try {
+        const entitlement = await checkEntitlement(req.phone, req.deviceId, req.deviceLabel);
+        return res.json(entitlement);
+      } catch (err) {
+        if (err instanceof DeviceLimitError || err.code === 'DEVICE_LIMIT') {
+          return res.status(403).json({
+            active: false,
+            deviceAllowed: false,
+            code: 'DEVICE_LIMIT',
+            message: err.message,
+          });
+        }
+        if (err.code === 'BLOCKED') {
+          return res.status(403).json({
+            active: false,
+            deviceAllowed: false,
+            code: 'BLOCKED',
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+    }
 
+    const user = await getUserByPhone(req.phone);
     if (!user || !user.subscriptionEnd) {
       return res.json({ active: false });
     }
-
-    const active = new Date(user.subscriptionEnd) > new Date();
     res.json({
-      active,
+      active: isSubscriptionActive(user),
       subscriptionStart: user.subscriptionStart,
       subscriptionEnd: user.subscriptionEnd,
       planType: user.planType,
+      maxDevices: user.maxDevices,
+      status: user.status,
     });
   } catch (err) {
     console.error('status error:', err);
     res.status(500).json({ message: err.message });
+  }
+});
+
+/** Explicit bind used at login/register when deviceId is known */
+router.post('/bind-device', requirePhone, requireDevice, async (req, res) => {
+  try {
+    await assertDeviceAllowed(req.phone, req.deviceId, req.deviceLabel);
+    const entitlement = await checkEntitlement(req.phone, req.deviceId, req.deviceLabel);
+    res.json(entitlement);
+  } catch (err) {
+    if (err instanceof DeviceLimitError || err.code === 'DEVICE_LIMIT') {
+      return res.status(403).json({ message: err.message, code: 'DEVICE_LIMIT' });
+    }
+    const status = err.status || 500;
+    res.status(status).json({ message: err.message, code: err.code });
   }
 });
 

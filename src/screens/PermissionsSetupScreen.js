@@ -20,7 +20,7 @@ const STEPS = [
     id: 'accessibility',
     num: '01',
     title: 'Accessibility Service',
-    description: 'Lets Playnix detect and tap the Accept button inside Ola, Uber, and other driver apps. This is the core permission.',
+    description: 'Lets Super Rides detect and tap the Accept button inside Ola, Uber, and other driver apps. This is the core permission.',
     instruction: null, // custom UI below for Android 13+
     action: openAccessibilitySettings,
     actionLabel: 'Open Accessibility Settings',
@@ -33,7 +33,7 @@ const STEPS = [
     num: '02',
     title: 'Display Over Other Apps',
     description: 'Shows a floating status indicator while you\'re inside driver apps confirming auto-clicker is running.',
-    instruction: 'Settings → Apps → Playnix → Display over other apps → Allow',
+    instruction: 'Settings → Apps → Super Rides → Display over other apps → Allow',
     action: openOverlaySettings,
     actionLabel: 'Open Overlay Settings',
     accentColor: colors.blue,
@@ -60,11 +60,11 @@ export default function PermissionsSetupScreen({ navigation }) {
 
   return (
     <Screen>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
 
       <View style={styles.header}>
         <View style={styles.headerIcon}>
-          <Text style={styles.headerIconText}>🛡️</Text>
+          <Text style={styles.headerIconText}>SR</Text>
         </View>
         <View style={styles.headerText}>
           <Text style={styles.headerTitle}>Setup Required</Text>
@@ -113,19 +113,19 @@ export default function PermissionsSetupScreen({ navigation }) {
 
               {step.id === 'accessibility' && needsRestrictedSettingsUnlock() && !granted && (
                 <View style={styles.restrictedBox}>
-                  <Text style={styles.restrictedTitle}>⚠️ Don't see "Allow restricted settings"?</Text>
+                  <Text style={styles.restrictedTitle}>Don't see "Allow restricted settings"?</Text>
                   <Text style={styles.restrictedText}>
                     Android hides that option until you try to enable accessibility first. Follow this exact order:
                   </Text>
-                  <Text style={styles.restrictedStep}>① Tap "Try Enable Accessibility" below — toggle Playnix ON</Text>
-                  <Text style={styles.restrictedStep}>② You'll see "Restricted setting" — that's normal, go back</Text>
-                  <Text style={styles.restrictedStep}>③ Tap "Open App Settings" → ⋮ top-right → Allow restricted settings</Text>
-                  <Text style={styles.restrictedStep}>④ Confirm PIN/fingerprint → return to Accessibility → turn ON again</Text>
+                  <Text style={styles.restrictedStep}>1. Tap "Try Enable Accessibility" below — toggle Super Rides ON</Text>
+                  <Text style={styles.restrictedStep}>2. You'll see "Restricted setting" — that's normal, go back</Text>
+                  <Text style={styles.restrictedStep}>3. Tap "Open App Settings" → menu → Allow restricted settings</Text>
+                  <Text style={styles.restrictedStep}>4. Confirm PIN/fingerprint → return to Accessibility → turn ON again</Text>
                   <Text style={styles.restrictedNote}>
                     Still blocked? Common fixes:{'\n'}
                     • Rebuilding/reinstalling the app RESETS this — you must unlock again{'\n'}
-                    • Uninstall Playnix fully → reinstall APK by tapping the file{'\n'}
-                    • Long-press app icon → App info → look for ⋮ or "Allow restricted settings"{'\n'}
+                    • Uninstall Super Rides fully → reinstall APK by tapping the file{'\n'}
+                    • Long-press app icon → App info → look for menu or "Allow restricted settings"{'\n'}
                     • Samsung: option may be on App Info page directly (scroll down){'\n'}
                     • After allowing, come back here and tap Re-check Permissions
                   </Text>
@@ -135,7 +135,7 @@ export default function PermissionsSetupScreen({ navigation }) {
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.restrictedBtnText, { color: colors.purpleBright }]}>
-                      ① Try Enable Accessibility →
+                      Try Enable Accessibility
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -144,7 +144,7 @@ export default function PermissionsSetupScreen({ navigation }) {
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.restrictedBtnText, { color: colors.warning }]}>
-                      ③ Open App Settings →
+                      Open App Settings
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -155,7 +155,7 @@ export default function PermissionsSetupScreen({ navigation }) {
                 <Text style={[styles.instructionLabel, { color: step.accentColor }]}>HOW TO ENABLE</Text>
                 <Text style={styles.instructionText}>
                   {step.id === 'accessibility'
-                    ? 'Settings → Accessibility → Downloaded / Installed apps → Playnix → ON'
+                    ? 'Settings → Accessibility → Downloaded / Installed apps → Super Rides → ON'
                     : step.instruction}
                 </Text>
               </View>
@@ -163,7 +163,7 @@ export default function PermissionsSetupScreen({ navigation }) {
               {/* Action button */}
               {!granted && (
                 <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: step.accentColor, shadowColor: step.accentColor }]}
+                  style={[styles.actionBtn, { backgroundColor: step.accentColor }]}
                   onPress={step.action}
                   activeOpacity={0.85}
                 >
@@ -188,14 +188,14 @@ export default function PermissionsSetupScreen({ navigation }) {
           style={[
             styles.continueBtn,
             allDone
-              ? { backgroundColor: colors.purple, shadowColor: colors.purple }
+              ? { backgroundColor: colors.purple }
               : { backgroundColor: colors.surfaceLight, borderWidth: 1, borderColor: colors.border },
           ]}
           onPress={() => replaceRoot(navigation, 'Main')}
           activeOpacity={0.85}
         >
           <Text style={[styles.continueBtnText, !allDone && { color: colors.icyMuted }]}>
-            {allDone ? '🎉  All Set — Open Home →' : 'Continue to Home (permissions optional) →'}
+            {allDone ? 'All Set — Open Home' : 'Continue to Home (permissions optional)'}
           </Text>
         </TouchableOpacity>
 
@@ -211,22 +211,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   headerIcon: {
-    width: 52, height: 52, borderRadius: 14,
-    backgroundColor: colors.purpleGlow,
-    borderWidth: 1, borderColor: colors.borderPurple,
+    width: 52, height: 52, borderRadius: 12,
+    backgroundColor: colors.surfaceLight,
+    borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  headerIconText: { fontSize: 26 },
+  headerIconText: { fontSize: 16, fontWeight: '700', color: colors.purpleBright },
   headerText:     { flex: 1 },
-  headerTitle:    { fontSize: 20, fontWeight: '900', color: colors.icy },
+  headerTitle:    { fontSize: 20, fontWeight: '700', color: colors.icy },
   headerSub:      { fontSize: 13, color: colors.icyDim, marginTop: 3 },
 
   scroll: { padding: 20, gap: 14, paddingBottom: 40 },
 
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 20, padding: 18,
-    borderWidth: 1.5, gap: 12,
+    borderRadius: 14, padding: 18,
+    borderWidth: 1, gap: 12,
   },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   badge: {
@@ -274,19 +274,17 @@ const styles = StyleSheet.create({
   instructionText:  { fontSize: 12, color: colors.icyDim, lineHeight: 18 },
 
   actionBtn: {
-    borderRadius: 12, paddingVertical: 14,
+    borderRadius: 10, paddingVertical: 14,
     alignItems: 'center',
-    shadowOpacity: 0.45, shadowRadius: 10, elevation: 6,
   },
-  actionBtnText: { color: colors.white, fontSize: 14, fontWeight: '800' },
+  actionBtnText: { color: colors.white, fontSize: 14, fontWeight: '700' },
 
   recheckBtn: { alignItems: 'center', paddingVertical: 12 },
   recheckText:{ color: colors.icyDim, fontSize: 14, fontWeight: '600' },
 
   continueBtn: {
-    borderRadius: 16, paddingVertical: 18,
+    borderRadius: 12, paddingVertical: 18,
     alignItems: 'center',
-    shadowOpacity: 0.45, shadowRadius: 14, elevation: 8,
   },
-  continueBtnText: { color: colors.white, fontSize: 15, fontWeight: '900' },
+  continueBtnText: { color: colors.white, fontSize: 15, fontWeight: '700' },
 });

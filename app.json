@@ -1,13 +1,26 @@
 {
   "expo": {
-    "name": "Playnix",
+    "name": "Super Rides",
     "slug": "playnix",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F4F7FB"
+    },
     "plugins": [
-      "./plugins/withAutoClicker.js"
+      "./plugins/withAutoClicker.js",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F4F7FB",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": false,
@@ -16,7 +29,7 @@
     "android": {
       "package": "com.playnix.app",
       "adaptiveIcon": {
-        "backgroundColor": "#FF6B00",
+        "backgroundColor": "#F4F7FB",
         "foregroundImage": "./assets/icon.png"
       },
       "permissions": [

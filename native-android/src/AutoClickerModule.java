@@ -172,12 +172,12 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     promise.resolve(enabled);
   }
 
-  /** Continuous FG spray API — default OFF; prefer MeClicker one-click path. */
+  /** Continuous FG spray API — HARD OFF (MeClicker hunt→click→micro-burst only). */
   @ReactMethod
   public void setContinuousForegroundTap(boolean enabled, Promise promise) {
-    AutoClickerConfig.setContinuousForegroundTap(enabled);
+    AutoClickerConfig.setContinuousForegroundTap(false);
     AutoClickerService.onConfigChanged();
-    promise.resolve(enabled);
+    promise.resolve(false);
   }
 
   @ReactMethod
@@ -235,7 +235,10 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       int latencyMs,
       String mode
   ) {
-    if (reactContext == null || !reactContext.hasActiveReactInstance()) return;
+    if (reactContext == null || !reactContext.hasActiveReactInstance()) {
+      android.util.Log.w("AutoClickerModule", "emitRideAccepted dropped — no React context");
+      return;
+    }
 
     WritableMap params = Arguments.createMap();
     params.putString("packageName", packageName);

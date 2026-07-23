@@ -1,11 +1,12 @@
 /**
- * referral.js — referral routes
+ * referral.js — referral routes (Postgres + device bind on register)
  */
 
 const express = require('express');
 const router = express.Router();
-const { requirePhone } = require('../middleware/auth');
+const { requirePhone, optionalDevice } = require('../middleware/auth');
 const { ensureUser, applyReferralCode, getUserByPhone } = require('../models/user');
+const { assertDeviceAllowed, DeviceLimitError } = require('../models/device');
 const { REFERRAL_GOAL } = require('../services/referral');
 
 router.get('/status', requirePhone, async (req, res) => {
@@ -30,12 +31,14 @@ router.get('/status', requirePhone, async (req, res) => {
   }
 });
 
-router.post('/register', requirePhone, async (req, res) => {
+router.post('/register', requirePhone, optionalDevice, async (req, res) => {
   try {
     const user = await ensureUser(req.phone);
     const { referralCode } = req.body;
     let referralApplied = false;
     let referralError = null;
+    let deviceBound = false;
+    let deviceError = null;
 
     if (referralCode?.trim()) {
       try {
@@ -47,11 +50,32 @@ router.post('/register', requirePhone, async (req, res) => {
       }
     }
 
+    if (req.deviceId) {
+      try {
+        await assertDeviceAllowed(req.phone, req.deviceId, req.deviceLabel);
+        deviceBound = true;
+      } catch (e) {
+        if (e instanceof DeviceLimitError || e.code === 'DEVICE_LIMIT') {
+          return res.status(403).json({
+            message: e.message,
+            code: 'DEVICE_LIMIT',
+            referralCode: user.referralCode,
+            referralApplied,
+            referralError,
+          });
+        }
+        deviceError = e.message;
+      }
+    }
+
     const updated = await getUserByPhone(req.phone);
     res.json({
       referralCode: updated.referralCode,
       referralApplied,
       referralError,
+      deviceBound,
+      deviceError,
+      maxDevices: updated.maxDevices,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

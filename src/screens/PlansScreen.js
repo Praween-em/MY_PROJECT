@@ -70,7 +70,7 @@ export default function PlansScreen({ navigation }) {
 
   return (
     <Screen>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Renewal Plans</Text>
@@ -143,7 +143,7 @@ export default function PlansScreen({ navigation }) {
         <TouchableOpacity
           style={[
             styles.payBtn,
-            { backgroundColor: plan?.accent, shadowColor: plan?.accent },
+            { backgroundColor: plan?.accent },
             paying && { opacity: 0.7 },
           ]}
           onPress={handlePay}
@@ -175,8 +175,8 @@ const styles = StyleSheet.create({
   scroll: { padding: 20, gap: 16, paddingBottom: 32 },
 
   card: {
-    backgroundColor: colors.surface, borderRadius: 22, padding: 22,
-    borderWidth: 1.5, borderColor: colors.border, gap: 12,
+    backgroundColor: colors.surface, borderRadius: 14, padding: 22,
+    borderWidth: 1, borderColor: colors.border, gap: 12,
   },
   popularBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
   popularText: { color: colors.white, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
@@ -212,10 +212,10 @@ const styles = StyleSheet.create({
   summaryTotalValue: { fontSize: 24, fontWeight: '900' },
 
   payBtn: {
-    borderRadius: 20, paddingVertical: 24, alignItems: 'center',
-    shadowOpacity: 0.5, shadowRadius: 16, elevation: 10, minHeight: 72,
+    borderRadius: 12, paddingVertical: 20, alignItems: 'center',
+    minHeight: 64,
   },
-  payBtnText: { color: colors.white, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
+  payBtnText: { color: colors.white, fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
   skipBtn: { alignItems: 'center', paddingVertical: 10 },
   skipText: { color: colors.icyDim, fontSize: 14, fontWeight: '600' },
 });
