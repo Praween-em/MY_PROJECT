@@ -32,27 +32,12 @@ function formatDate(ts) {
   return `${dd}/${mo}/${yyyy}`;
 }
 
-function coerceAmount(value) {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return Math.round(value);
-  }
-  if (typeof value === 'string') {
-    const cleaned = value.replace(/[^0-9.]/g, '');
-    const n = parseFloat(cleaned);
-    if (Number.isFinite(n) && n > 0) return Math.round(n);
-  }
-  return 0;
-}
-
 function normalizeRide(ride) {
   const ts = ride?.timestamp || Date.now();
-  const amount = coerceAmount(ride?.amount) || coerceAmount(ride?.price) || 0;
   return {
     ...ride,
     time: ride?.time || formatTime(ts),
     date: ride?.date || formatDate(ts),
-    amount,
-    price: amount,
   };
 }
 
@@ -72,11 +57,6 @@ export async function getRideHistory() {
 export async function addRideAccepted(event) {
   const ts = Number(event?.timestamp) || Date.now();
   const packageName = event?.packageName || '';
-  const price =
-    coerceAmount(event?.price) ||
-    coerceAmount(event?.amount) ||
-    coerceAmount(event?.fare) ||
-    0;
   const mode = event?.mode === 'Nuclear' ? 'Nuclear' : 'Standard';
   const latencyMs =
     typeof event?.latencyMs === 'number' && event.latencyMs >= 0
@@ -85,12 +65,9 @@ export async function addRideAccepted(event) {
 
   const ride = {
     id: `${ts}-${packageName || 'app'}-${Math.random().toString(36).slice(2, 7)}`,
-    amount: price,
-    price,
     app: packageLabel(packageName) || 'App',
     packageName,
     tag: mode,
-    target: 0,
     ms: latencyMs,
     label: event?.label || '',
     time: formatTime(ts),
@@ -101,11 +78,10 @@ export async function addRideAccepted(event) {
 
   const prev = await getRideHistory();
 
-  // Drop near-duplicate emits (same package + price within 2s)
+  // Drop near-duplicate emits (same package within 2s)
   const isDupe = prev.some(
     (r) =>
       r.packageName === packageName &&
-      (r.amount || 0) === price &&
       Math.abs((r.timestamp || 0) - ts) < 2000
   );
   if (isDupe) return prev[0];

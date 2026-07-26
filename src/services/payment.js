@@ -7,6 +7,7 @@
  */
 
 import { createOrder, verifyPayment } from './api';
+import Constants from 'expo-constants';
 
 // react-native-razorpay is imported at call-time to avoid crashing on
 // platforms where the native module isn't available (e.g., web preview).
@@ -19,14 +20,17 @@ async function getRazorpay() {
   return RazorpayCheckout;
 }
 
-const RAZORPAY_KEY_ID = process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_XXXXXXXXXXXXXXXX';
+const RAZORPAY_KEY_ID =
+  Constants.expoConfig?.extra?.razorpayKeyId ||
+  process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID ||
+  'rzp_test_XXXXXXXXXXXXXXXX';
 
 /**
  * planConfig maps plan IDs to display names and amounts (in paise).
  */
 export const PLAN_CONFIG = {
-  monthly:   { label: '1 Month',   amount: 29900, description: '30-day access to Super Rides' },
-  quarterly: { label: '3 Months',  amount: 67500, description: '90-day access to Super Rides' },
+  monthly:   { label: '1 Month',   amount: 29900, description: '30-day access to Super Ridex' },
+  quarterly: { label: '3 Months',  amount: 67500, description: '90-day access to Super Ridex' },
 };
 
 /**
@@ -54,7 +58,7 @@ export async function openCheckout(planId, phone) {
     order_id: orderId,
     amount,
     currency: currency || 'INR',
-    name: 'Super Rides',
+    name: 'SUPER RIDEX',
     description: plan.description,
     prefill: { contact: phone },
     theme: { color: '#00FF7F' },

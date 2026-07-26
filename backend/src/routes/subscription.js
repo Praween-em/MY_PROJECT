@@ -124,7 +124,10 @@ router.get('/status', requirePhone, optionalDevice, async (req, res) => {
 /** Explicit bind used at login/register when deviceId is known */
 router.post('/bind-device', requirePhone, requireDevice, async (req, res) => {
   try {
-    await assertDeviceAllowed(req.phone, req.deviceId, req.deviceLabel);
+    // Explicit bind (post-login) may rebind when at capacity — same as OTP.
+    await assertDeviceAllowed(req.phone, req.deviceId, req.deviceLabel, {
+      rebindIfFull: true,
+    });
     const entitlement = await checkEntitlement(req.phone, req.deviceId, req.deviceLabel);
     res.json(entitlement);
   } catch (err) {

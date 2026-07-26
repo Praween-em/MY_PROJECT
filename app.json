@@ -1,36 +1,39 @@
 {
   "expo": {
-    "name": "Super Rides",
-    "slug": "playnix",
+    "name": "SUPER RIDEX",
+    "slug": "superridex",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/AppIcons/playstore.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash-blank.png",
       "resizeMode": "contain",
-      "backgroundColor": "#F4F7FB"
+      "backgroundColor": "#000000"
     },
     "plugins": [
-      "./plugins/withAutoClicker.js",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F4F7FB",
-          "image": "./assets/splash-icon.png",
-          "imageWidth": 220
+          "backgroundColor": "#000000",
+          "image": "./assets/splash-blank.png",
+          "imageWidth": 1,
+          "resizeMode": "contain"
         }
-      ]
+      ],
+      "./plugins/withAutoClicker.js"
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.playnix.app"
+      "bundleIdentifier": "com.playnix.app",
+      "icon": "./assets/AppIcons/appstore.png"
     },
     "android": {
       "package": "com.playnix.app",
+      "icon": "./assets/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png",
       "adaptiveIcon": {
-        "backgroundColor": "#F4F7FB",
-        "foregroundImage": "./assets/icon.png"
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/AppIcons/android/adaptive-foreground.png"
       },
       "permissions": [
         "android.permission.RECEIVE_BOOT_COMPLETED",
@@ -43,7 +46,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/AppIcons/playstore.png"
     }
   }
 }

@@ -141,8 +141,8 @@ export function useSubscription() {
 
   const endDate = subscription?.subscriptionEnd ?? null;
   const locallyActive = computeLocalActive(endDate);
-  // Prefer remote active flag, but never stay active past local end time
-  const isActive = !!subscription?.active && locallyActive;
+  // Remote active is enough when end date is missing; never stay active past a known end.
+  const isActive = !!subscription?.active && (!endDate || locallyActive);
 
   // Force inactive in state when local clock says expired (keeps UI in sync)
   useEffect(() => {

@@ -67,26 +67,7 @@ public final class AutoClickerConfig {
     if (context == null) return;
     appContext = context.getApplicationContext();
     prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-    for (String pkg : monitoredPackages) {
-      int x = prefs.getInt("tap_x_" + pkg, -1);
-      int y = prefs.getInt("tap_y_" + pkg, -1);
-      if (x > 0 && y > 0) {
-        cachedTapByPackage.put(pkg, new int[] { x, y });
-      }
-      int ox = prefs.getInt("overlay_tap_x_" + pkg, -1);
-      int oy = prefs.getInt("overlay_tap_y_" + pkg, -1);
-      if (ox > 0 && oy > 0) {
-        cachedOverlayTapByPackage.put(pkg, new int[] { ox, oy });
-      }
-    }
-    filterMode.set(prefs.getInt("filter_mode", MODE_PRICE));
-    maxPickup.set(prefs.getFloat("max_pickup", 99f));
-    maxDrop.set(prefs.getFloat("max_drop", 0f));
-    continuousForegroundTap.set(false); // HARD OFF — ignore stale pref
-    minPrice.set(Math.max(0, prefs.getInt("min_price", 0)));
-    nuclearMode.set(prefs.getBoolean("nuclear_mode", true));
-    enabled.set(prefs.getBoolean("enabled", false));
-    delayMs.set(Math.max(0, prefs.getInt("delay_ms", 0)));
+    reloadFromPrefs();
     // Persist defaults on first run so a11y/NLS/JS share the same prefs file
     if (!prefs.contains("enabled") || !prefs.contains("nuclear_mode")
         || prefs.getBoolean("continuous_fg_tap", false)) {
@@ -100,21 +81,85 @@ public final class AutoClickerConfig {
     }
   }
 
+  /** Re-read disk prefs into memory (NLS/a11y can start before JS Module). */
+  public static void reloadFromPrefs() {
+    SharedPreferences p = prefs;
+    if (p == null && appContext != null) {
+      prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+      p = prefs;
+    }
+    if (p == null) return;
+    for (String pkg : monitoredPackages) {
+      int x = p.getInt("tap_x_" + pkg, -1);
+      int y = p.getInt("tap_y_" + pkg, -1);
+      if (x > 0 && y > 0) {
+        cachedTapByPackage.put(pkg, new int[] { x, y });
+      }
+      int ox = p.getInt("overlay_tap_x_" + pkg, -1);
+      int oy = p.getInt("overlay_tap_y_" + pkg, -1);
+      if (ox > 0 && oy > 0) {
+        cachedOverlayTapByPackage.put(pkg, new int[] { ox, oy });
+      }
+    }
+    filterMode.set(p.getInt("filter_mode", MODE_PRICE));
+    maxPickup.set(p.getFloat("max_pickup", 99f));
+    maxDrop.set(p.getFloat("max_drop", 0f));
+    continuousForegroundTap.set(false); // HARD OFF — ignore stale pref
+    minPrice.set(Math.max(0, p.getInt("min_price", 0)));
+    nuclearMode.set(p.getBoolean("nuclear_mode", true));
+    enabled.set(p.getBoolean("enabled", false));
+    delayMs.set(Math.max(0, p.getInt("delay_ms", 0)));
+  }
+
+  /** Ensure prefs loaded before any enable/min check (safe from NLS binder thread). */
+  public static void ensureInit(Context context) {
+    if (prefs != null) return;
+    if (context != null) {
+      init(context);
+    } else if (appContext != null) {
+      init(appContext);
+    }
+  }
+
   public static Context getAppContext() {
     return appContext;
   }
 
   public static boolean isEnabled() {
+    syncCriticalFromDisk();
     return enabled.get();
   }
 
   public static void setEnabled(boolean value) {
     enabled.set(value);
     SharedPreferences p = prefs;
-    if (p != null) p.edit().putBoolean("enabled", value).apply();
+    if (p != null) p.edit().putBoolean("enabled", value).commit(); // commit — a11y must see it now
+  }
+
+  private static volatile long lastDiskSyncUptimeMs = 0L;
+
+  /**
+   * Re-read enabled/min/nuclear from disk. Fixes ColorOS process reuse where
+   * in-memory AtomicBooleans stay false after prefs were updated (JS / adb).
+   * Throttled — a11y hot path calls isEnabled() extremely often.
+   */
+  private static void syncCriticalFromDisk() {
+    if (prefs == null && appContext != null) {
+      init(appContext);
+    }
+    SharedPreferences p = prefs;
+    if (p == null) return;
+    long now = android.os.SystemClock.uptimeMillis();
+    if (now - lastDiskSyncUptimeMs < 400L) return;
+    lastDiskSyncUptimeMs = now;
+    enabled.set(p.getBoolean("enabled", false));
+    nuclearMode.set(p.getBoolean("nuclear_mode", true));
+    minPrice.set(Math.max(0, p.getInt("min_price", 0)));
+    delayMs.set(Math.max(0, p.getInt("delay_ms", 0)));
   }
 
   public static boolean isNuclearMode() {
+    syncCriticalFromDisk();
     return nuclearMode.get();
   }
 
@@ -136,6 +181,7 @@ public final class AutoClickerConfig {
   }
 
   public static int getMinPrice() {
+    syncCriticalFromDisk();
     return minPrice.get();
   }
 
@@ -143,7 +189,7 @@ public final class AutoClickerConfig {
     int v = Math.max(0, value);
     minPrice.set(v);
     SharedPreferences p = prefs;
-    if (p != null) p.edit().putInt("min_price", v).apply();
+    if (p != null) p.edit().putInt("min_price", v).commit();
   }
 
   public static int getDelayMs() {

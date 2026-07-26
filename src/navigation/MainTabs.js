@@ -30,8 +30,12 @@ export default function MainTabs() {
 
   return (
     <Tab.Navigator
+      lazy
+      detachInactiveScreens
       screenOptions={{
         headerShown: false,
+        lazy: true,
+        freezeOnBlur: true,
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,

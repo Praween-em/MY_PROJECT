@@ -139,8 +139,12 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void setServiceEnabled(boolean enabled, Promise promise) {
+    boolean prev = AutoClickerConfig.isEnabled();
     AutoClickerConfig.setEnabled(enabled);
     AutoClickerService.onConfigChanged();
+    if (prev != enabled) {
+      android.util.Log.i("AutoClickerModule", "setServiceEnabled " + prev + "→" + enabled);
+    }
     promise.resolve(enabled);
   }
 

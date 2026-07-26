@@ -2,9 +2,31 @@
  * api.js — HTTP client for SUPER RIDEX backend (Postgres / Railway)
  */
 
+import Constants from 'expo-constants';
 import { getDeviceId, getDeviceLabel } from '../utils/deviceId';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://api.playnix.in';
+function resolveBaseUrl() {
+  const fromExtra = Constants.expoConfig?.extra?.apiUrl;
+  const fromEnv = process.env.EXPO_PUBLIC_API_URL;
+  let url = String(fromExtra || fromEnv || '').trim();
+  // Guard against .env mistakes like: EXPO_PUBLIC_API_URL=EXPO_PUBLIC_API_URL=https://...
+  url = url.replace(/^EXPO_PUBLIC_API_URL=/i, '').trim();
+  url = url.replace(/\/$/, '');
+  if (url && !/^https?:\/\//i.test(url)) {
+    url = `https://${url}`;
+  }
+  return url || 'https://api.playnix.in';
+}
+
+const BASE_URL = resolveBaseUrl();
+
+if (__DEV__) {
+  console.log('[api] BASE_URL =', BASE_URL);
+}
+
+export function getApiBaseUrl() {
+  return BASE_URL;
+}
 
 export class ApiError extends Error {
   constructor(message, { status, code, data } = {}) {
@@ -29,11 +51,24 @@ async function request(method, path, body, token) {
     ? { ...body, deviceId: body.deviceId || deviceId, deviceLabel: body.deviceLabel || deviceLabel }
     : undefined;
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    body: payload ? JSON.stringify(payload) : undefined,
-  });
+  const url = `${BASE_URL}${path}`;
+  if (__DEV__) {
+    console.log(`[api] ${method} ${url}`);
+  }
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: payload ? JSON.stringify(payload) : undefined,
+    });
+  } catch (err) {
+    throw new ApiError(
+      `Cannot reach backend (${BASE_URL}). Check EXPO_PUBLIC_API_URL and rebuild the app.`,
+      { status: 0, code: 'NETWORK', data: { cause: err?.message } }
+    );
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

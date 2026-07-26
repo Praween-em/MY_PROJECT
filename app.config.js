@@ -3,37 +3,43 @@ import 'dotenv/config';
 /** @type {import('expo/config').ExpoConfig} */
 export default {
   expo: {
-    name: 'Super Rides',
-    slug: 'playnix',
+    name: 'SUPER RIDEX',
+    slug: 'superridex',
     version: '1.0.0',
     orientation: 'portrait',
-    icon: './assets/icon.png',
+    icon: './assets/AppIcons/playstore.png',
     userInterfaceStyle: 'light',
+    // Native splash is black-only (Android forces a circle — we hide it).
+    // Real splash art is assets/splash_screen.png via LoadingScreen.
     splash: {
-      image: './assets/splash-icon.png',
+      image: './assets/splash-blank.png',
       resizeMode: 'contain',
-      backgroundColor: '#F4F7FB',
+      backgroundColor: '#000000',
     },
     plugins: [
-      './plugins/withAutoClicker.js',
       [
         'expo-splash-screen',
         {
-          backgroundColor: '#F4F7FB',
-          image: './assets/splash-icon.png',
-          imageWidth: 220,
+          backgroundColor: '#000000',
+          image: './assets/splash-blank.png',
+          imageWidth: 1,
+          resizeMode: 'contain',
         },
       ],
+      // Runs after expo-splash-screen so we can wipe the circular logo
+      './plugins/withAutoClicker.js',
     ],
     ios: {
       supportsTablet: false,
       bundleIdentifier: 'com.playnix.app',
+      icon: './assets/AppIcons/appstore.png',
     },
     android: {
       package: 'com.playnix.app',
+      icon: './assets/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png',
       adaptiveIcon: {
-        backgroundColor: '#F4F7FB',
-        foregroundImage: './assets/icon.png',
+        backgroundColor: '#000000',
+        foregroundImage: './assets/AppIcons/android/adaptive-foreground.png',
       },
       permissions: [
         'android.permission.RECEIVE_BOOT_COMPLETED',
@@ -47,7 +53,7 @@ export default {
       ],
     },
     web: {
-      favicon: './assets/favicon.png',
+      favicon: './assets/AppIcons/playstore.png',
     },
     extra: {
       apiUrl: process.env.EXPO_PUBLIC_API_URL,

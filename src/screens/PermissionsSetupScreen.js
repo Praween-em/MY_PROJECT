@@ -20,7 +20,7 @@ const STEPS = [
     id: 'accessibility',
     num: '01',
     title: 'Accessibility Service',
-    description: 'Lets Super Rides detect and tap the Accept button inside Ola, Uber, and other driver apps. This is the core permission.',
+    description: 'Lets Super Ridex detect and tap the Accept button inside Ola, Uber, and other driver apps. This is the core permission.',
     instruction: null, // custom UI below for Android 13+
     action: openAccessibilitySettings,
     actionLabel: 'Open Accessibility Settings',
@@ -33,7 +33,7 @@ const STEPS = [
     num: '02',
     title: 'Display Over Other Apps',
     description: 'Shows a floating status indicator while you\'re inside driver apps confirming auto-clicker is running.',
-    instruction: 'Settings → Apps → Super Rides → Display over other apps → Allow',
+    instruction: 'Settings → Apps → SUPER RIDEX → Display over other apps → Allow',
     action: openOverlaySettings,
     actionLabel: 'Open Overlay Settings',
     accentColor: colors.blue,
@@ -117,14 +117,14 @@ export default function PermissionsSetupScreen({ navigation }) {
                   <Text style={styles.restrictedText}>
                     Android hides that option until you try to enable accessibility first. Follow this exact order:
                   </Text>
-                  <Text style={styles.restrictedStep}>1. Tap "Try Enable Accessibility" below — toggle Super Rides ON</Text>
+                  <Text style={styles.restrictedStep}>1. Tap "Try Enable Accessibility" below — toggle SUPER RIDEX ON</Text>
                   <Text style={styles.restrictedStep}>2. You'll see "Restricted setting" — that's normal, go back</Text>
                   <Text style={styles.restrictedStep}>3. Tap "Open App Settings" → menu → Allow restricted settings</Text>
                   <Text style={styles.restrictedStep}>4. Confirm PIN/fingerprint → return to Accessibility → turn ON again</Text>
                   <Text style={styles.restrictedNote}>
                     Still blocked? Common fixes:{'\n'}
                     • Rebuilding/reinstalling the app RESETS this — you must unlock again{'\n'}
-                    • Uninstall Super Rides fully → reinstall APK by tapping the file{'\n'}
+                    • Uninstall SUPER RIDEX fully → reinstall APK by tapping the file{'\n'}
                     • Long-press app icon → App info → look for menu or "Allow restricted settings"{'\n'}
                     • Samsung: option may be on App Info page directly (scroll down){'\n'}
                     • After allowing, come back here and tap Re-check Permissions
@@ -155,7 +155,7 @@ export default function PermissionsSetupScreen({ navigation }) {
                 <Text style={[styles.instructionLabel, { color: step.accentColor }]}>HOW TO ENABLE</Text>
                 <Text style={styles.instructionText}>
                   {step.id === 'accessibility'
-                    ? 'Settings → Accessibility → Downloaded / Installed apps → Super Rides → ON'
+                    ? 'Settings → Accessibility → Downloaded / Installed apps → SUPER RIDEX → ON'
                     : step.instruction}
                 </Text>
               </View>

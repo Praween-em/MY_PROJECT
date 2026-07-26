@@ -7,6 +7,7 @@ import Screen from '../components/Screen';
 import { colors } from '../theme/colors';
 import { getStoredUser, saveUser } from '../utils/storage';
 import { openCheckout, isPaymentCancelled } from '../services/payment';
+import { getSubscriptionStatus } from '../services/api';
 import { replaceRoot } from '../navigation/rootNavigation';
 
 const PLANS = [
@@ -52,12 +53,19 @@ export default function PlansScreen({ navigation }) {
     setPaying(true);
     try {
       const result = await openCheckout(selected, user.phone);
+      // Re-read from Railway so Home matches DB (not only local cache)
+      let remote = null;
+      try {
+        remote = await getSubscriptionStatus(user.phone);
+      } catch {
+        // payment already verified; local result is still valid
+      }
       await saveUser({
         ...user,
-        active: true,
-        planType: selected,
-        subscriptionEnd: result.subscriptionEnd,
-        subscriptionStart: new Date().toISOString(),
+        active: remote?.active ?? true,
+        planType: remote?.planType || selected,
+        subscriptionEnd: remote?.subscriptionEnd || result.subscriptionEnd,
+        subscriptionStart: remote?.subscriptionStart || new Date().toISOString(),
       });
       navigation.replace('PermissionsSetup');
     } catch (err) {

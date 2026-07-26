@@ -50,23 +50,31 @@ router.post('/verify-otp', optionalDevice, async (req, res) => {
       }
     }
 
-    if (req.deviceId) {
-      try {
-        await assertDeviceAllowed(phone, req.deviceId, req.deviceLabel);
-      } catch (e) {
-        if (e instanceof DeviceLimitError || e.code === 'DEVICE_LIMIT') {
-          return res.status(403).json({
-            message: e.message,
-            code: 'DEVICE_LIMIT',
-            phone,
-            referralCode: user.referralCode,
-          });
-        }
-        if (e.code === 'BLOCKED') {
-          return res.status(403).json({ message: e.message, code: 'BLOCKED' });
-        }
-        throw e;
+    // OTP proves phone ownership — always bind/rebind this install (fixes same-phone
+    // reinstall / debug APK getting stuck on "another device").
+    if (!req.deviceId || String(req.deviceId).trim().length < 8) {
+      return res.status(400).json({
+        message: 'deviceId required for login',
+        code: 'DEVICE_REQUIRED',
+      });
+    }
+    try {
+      await assertDeviceAllowed(phone, req.deviceId, req.deviceLabel, {
+        rebindIfFull: true,
+      });
+    } catch (e) {
+      if (e instanceof DeviceLimitError || e.code === 'DEVICE_LIMIT') {
+        return res.status(403).json({
+          message: e.message,
+          code: 'DEVICE_LIMIT',
+          phone,
+          referralCode: user.referralCode,
+        });
       }
+      if (e.code === 'BLOCKED') {
+        return res.status(403).json({ message: e.message, code: 'BLOCKED' });
+      }
+      throw e;
     }
 
     const updated = await getUserByPhone(phone);

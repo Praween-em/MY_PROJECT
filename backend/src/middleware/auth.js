@@ -28,12 +28,14 @@ function requirePhone(req, res, next) {
 }
 
 function readDeviceId(req) {
-  return (
+  const raw =
     req.body?.deviceId ||
     req.query?.deviceId ||
     req.headers['x-device-id'] ||
-    null
-  );
+    null;
+  if (raw == null) return null;
+  const id = String(raw).trim();
+  return id.length >= 8 ? id : null;
 }
 
 function readDeviceLabel(req) {

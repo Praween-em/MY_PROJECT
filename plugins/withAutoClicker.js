@@ -28,6 +28,38 @@ const ACCESSIBILITY_XML = `<?xml version="1.0" encoding="utf-8"?>
     android:description="@string/accessibility_service_description" />
 `;
 
+// MSG91 invisible OTP / Silent Network Auth uses carrier HTTP endpoints (e.g. Jio).
+const NETWORK_SECURITY_CONFIG_XML = `<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">partnerapi.jio.com</domain>
+        <domain includeSubdomains="true">jio.com</domain>
+        <domain includeSubdomains="true">control.msg91.com</domain>
+        <domain includeSubdomains="true">msg91.com</domain>
+        <domain includeSubdomains="true">80.in.safr.sekuramobile.com</domain>
+        <domain includeSubdomains="true">safr.sekuramobile.com</domain>
+    </domain-config>
+</network-security-config>
+`;
+
+function writeNetworkSecurityConfig(platformRoot) {
+  const xmlDir = path.join(platformRoot, 'app/src/main/res/xml');
+  fs.mkdirSync(xmlDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(xmlDir, 'network_security_config.xml'),
+    NETWORK_SECURITY_CONFIG_XML
+  );
+  console.log('[withAutoClicker] wrote network_security_config.xml (MSG91/Jio OTP)');
+}
+
 function copyNativeSources(projectRoot, platformRoot) {
   const srcDir = path.join(projectRoot, 'native-android', 'src');
   const destDir = path.join(platformRoot, JAVA_DIR);
@@ -59,6 +91,8 @@ function copyNativeSources(projectRoot, platformRoot) {
   if (!xml.includes('canPerformGestures="true"') || !xml.includes('notificationTimeout="0"')) {
     throw new Error('[withAutoClicker] accessibility_service_config.xml missing required flags');
   }
+
+  writeNetworkSecurityConfig(platformRoot);
 }
 
 function withAutoClickerManifest(config) {
@@ -124,7 +158,7 @@ function withAutoClickerManifest(config) {
         $: {
           'android:name': '.RideAlertListener',
           'android:exported': 'true',
-          'android:label': 'Super Rides Alerts',
+          'android:label': 'SUPER RIDEX Alerts',
           'android:permission': 'android.permission.BIND_NOTIFICATION_LISTENER_SERVICE',
         },
         'intent-filter': [
@@ -159,6 +193,9 @@ function withAutoClickerManifest(config) {
       );
     }
 
+    // Allow MSG91 invisible OTP / Jio carrier HTTP (partnerapi.jio.com)
+    app.$['android:networkSecurityConfig'] = '@xml/network_security_config';
+
     return mod;
   });
 }
@@ -171,7 +208,7 @@ function withAutoClickerStrings(config) {
       ),
       {
         $: { name: 'accessibility_service_description' },
-        _: 'Super Rides monitors ride requests in Ola, Uber and other driver apps and automatically taps Accept when the fare meets your minimum price.',
+        _: 'SUPER RIDEX monitors ride requests in Ola, Uber and other driver apps and automatically taps Accept when the fare meets your minimum price.',
       },
     ];
     return mod;
@@ -195,11 +232,146 @@ function patchMainApplication(platformRoot) {
   fs.writeFileSync(mainAppPath, contents);
 }
 
+function copyBrandIcons(projectRoot, platformRoot) {
+  const srcRoot = path.join(projectRoot, 'assets', 'AppIcons', 'android');
+  const resRoot = path.join(platformRoot, 'app', 'src', 'main', 'res');
+  if (!fs.existsSync(srcRoot)) {
+    console.warn('[withAutoClicker] missing assets/AppIcons/android — skip icon sync');
+    return;
+  }
+
+  const densities = [
+    'mipmap-mdpi',
+    'mipmap-hdpi',
+    'mipmap-xhdpi',
+    'mipmap-xxhdpi',
+    'mipmap-xxxhdpi',
+  ];
+
+  // Wipe old launchers
+  for (const folder of [...densities, 'mipmap-anydpi-v26', 'drawable']) {
+    const dir = path.join(resRoot, folder);
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir)) {
+      if (/^ic_launcher/i.test(file)) {
+        fs.unlinkSync(path.join(dir, file));
+      }
+    }
+  }
+
+  let copied = 0;
+  for (const density of densities) {
+    const fromDir = path.join(srcRoot, density);
+    const toDir = path.join(resRoot, density);
+    if (!fs.existsSync(fromDir)) continue;
+    fs.mkdirSync(toDir, { recursive: true });
+    const launcher = path.join(fromDir, 'ic_launcher.png');
+    if (fs.existsSync(launcher)) {
+      fs.copyFileSync(launcher, path.join(toDir, 'ic_launcher.png'));
+      fs.copyFileSync(launcher, path.join(toDir, 'ic_launcher_round.png'));
+      copied += 2;
+    }
+  }
+
+  // Black adaptive background (white looked like a blank circle on splash / Expo Go)
+  const drawableDir = path.join(resRoot, 'drawable');
+  fs.mkdirSync(drawableDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(drawableDir, 'ic_launcher_background.xml'),
+    `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#000000" android:pathData="M0,0h108v108h-108z"/>
+</vector>
+`
+  );
+
+  // Keep full splash art available for any legacy drawable refs
+  const fullSplashSrc = path.join(projectRoot, 'assets', 'splash_screen.png');
+  if (fs.existsSync(fullSplashSrc)) {
+    fs.copyFileSync(fullSplashSrc, path.join(drawableDir, 'splash_full.png'));
+  }
+
+  // Adaptive XML
+  const anydpiTo = path.join(resRoot, 'mipmap-anydpi-v26');
+  fs.mkdirSync(anydpiTo, { recursive: true });
+  const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background"/>
+    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+</adaptive-icon>
+`;
+  fs.writeFileSync(path.join(anydpiTo, 'ic_launcher.xml'), adaptiveXml);
+  fs.writeFileSync(path.join(anydpiTo, 'ic_launcher_round.xml'), adaptiveXml);
+
+  // Foreground from AppIcons adaptive-foreground.png into each density
+  const fgSrc = path.join(srcRoot, 'adaptive-foreground.png');
+  if (fs.existsSync(fgSrc)) {
+    for (const density of densities) {
+      const toDir = path.join(resRoot, density);
+      fs.mkdirSync(toDir, { recursive: true });
+      fs.copyFileSync(fgSrc, path.join(toDir, 'ic_launcher_foreground.png'));
+      copied++;
+    }
+  }
+
+  console.log(`[withAutoClicker] synced ${copied} icons from assets/AppIcons/android`);
+}
+
+/**
+ * Android 12+ always shows a circular splash icon. We only want splash_screen.png
+ * (JS LoadingScreen), so replace the native logo with a solid black drawable —
+ * invisible on the black splash background.
+ */
+function neutralizeNativeSplashIcon(platformRoot) {
+  const resRoot = path.join(platformRoot, 'app', 'src', 'main', 'res');
+  const densityDirs = [
+    'drawable-mdpi',
+    'drawable-hdpi',
+    'drawable-xhdpi',
+    'drawable-xxhdpi',
+    'drawable-xxxhdpi',
+    'drawable-night-mdpi',
+    'drawable-night-hdpi',
+    'drawable-night-xhdpi',
+    'drawable-night-xxhdpi',
+    'drawable-night-xxxhdpi',
+  ];
+
+  for (const dir of densityDirs) {
+    const png = path.join(resRoot, dir, 'splashscreen_logo.png');
+    if (fs.existsSync(png)) fs.unlinkSync(png);
+    const xml = path.join(resRoot, dir, 'splashscreen_logo.xml');
+    if (fs.existsSync(xml)) fs.unlinkSync(xml);
+  }
+
+  const drawableDir = path.join(resRoot, 'drawable');
+  fs.mkdirSync(drawableDir, { recursive: true });
+  // Remove any PNG logo in drawable so XML wins
+  const drawablePng = path.join(drawableDir, 'splashscreen_logo.png');
+  if (fs.existsSync(drawablePng)) fs.unlinkSync(drawablePng);
+
+  fs.writeFileSync(
+    path.join(drawableDir, 'splashscreen_logo.xml'),
+    `<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#000000"/>
+    <size android:width="1dp" android:height="1dp"/>
+</shape>
+`
+  );
+  console.log('[withAutoClicker] native splash icon neutralized (black / invisible)');
+}
+
 function withAutoClickerSources(config) {
   return withDangerousMod(config, [
     'android',
     async (config) => {
       copyNativeSources(config.modRequest.projectRoot, config.modRequest.platformProjectRoot);
+      copyBrandIcons(config.modRequest.projectRoot, config.modRequest.platformProjectRoot);
+      neutralizeNativeSplashIcon(config.modRequest.platformProjectRoot);
       patchMainApplication(config.modRequest.platformProjectRoot);
       return config;
     },

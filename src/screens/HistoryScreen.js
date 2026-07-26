@@ -34,10 +34,9 @@ export default function HistoryScreen() {
     }, [loadHistory])
   );
 
-  const total = rides.reduce((s, r) => s + (r.amount || 0), 0);
   const byApp = rides.reduce((acc, r) => {
     const key = r.app || 'App';
-    acc[key] = (acc[key] || 0) + (r.amount || 0);
+    acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
   const appEntries = Object.entries(byApp);
@@ -98,24 +97,21 @@ export default function HistoryScreen() {
           />
         }
       >
-        <View style={styles.earningsCard}>
-          <Text style={styles.earningsLabel}>TOTAL FROM ACCEPTED RIDES</Text>
-          <Text style={styles.earningsAmount}>₹{total}</Text>
-          <Text style={styles.rideCountMeta}>
-            {rides.length} accepted{rides.length === 1 ? ' ride' : ' rides'}
-          </Text>
-          <View style={styles.earningsSplit}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>ACCEPTED RIDES</Text>
+          <Text style={styles.summaryCount}>{rides.length}</Text>
+          <View style={styles.summarySplit}>
             {appEntries.length === 0 ? (
               <Text style={[styles.splitChip, { borderColor: colors.border, color: colors.icyMuted }]}>
                 No rides yet
               </Text>
             ) : (
-              appEntries.map(([app, sum]) => (
+              appEntries.map(([app, count]) => (
                 <Text
                   key={app}
                   style={[styles.splitChip, { borderColor: colors.border, color: colors.icyDim }]}
                 >
-                  {app} ₹{sum}
+                  {app} · {count}
                 </Text>
               ))
             )}
@@ -133,7 +129,7 @@ export default function HistoryScreen() {
           <ActivityIndicator style={{ marginTop: 24 }} color={colors.blue} />
         ) : rides.length === 0 ? (
           <Text style={styles.empty}>
-            No rides accepted yet. When auto-accept takes a ride, it will show here with fare, app, and time.
+            No rides accepted yet. When auto-accept takes a ride, it will show here with app and time.
           </Text>
         ) : (
           rides.map((ride) => (
@@ -150,17 +146,14 @@ export default function HistoryScreen() {
               </View>
 
               <View style={styles.rideInfo}>
-                <View style={styles.amountRow}>
-                  <Text style={styles.rideAmount}>
-                    {ride.amount > 0 ? `₹${ride.amount}` : 'Fare N/A'}
-                  </Text>
+                <View style={styles.titleRow}>
+                  <Text style={styles.rideTitle}>{ride.app || 'App'}</Text>
                   <View style={styles.acceptedPill}>
                     <Text style={styles.acceptedPillText}>ACCEPTED</Text>
                   </View>
                 </View>
                 <Text style={styles.rideDetail}>
-                  {ride.app || 'App'}
-                  {ride.tag ? ` · ${ride.tag}` : ''}
+                  {ride.tag || 'Standard'}
                   {ride.label ? ` · ${ride.label}` : ''}
                 </Text>
                 <Text style={styles.rideWhen}>
@@ -204,16 +197,15 @@ const styles = StyleSheet.create({
 
   scroll: { padding: 20, gap: 14, paddingBottom: 32 },
 
-  earningsCard: {
+  summaryCard: {
     backgroundColor: colors.surface,
     borderRadius: 14, padding: 22,
     borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', gap: 8,
   },
-  earningsLabel: { fontSize: 11, color: colors.icyMuted, letterSpacing: 1.5, fontWeight: '600' },
-  earningsAmount: { fontSize: 44, fontWeight: '700', color: colors.icy },
-  rideCountMeta: { fontSize: 13, fontWeight: '600', color: colors.icyDim },
-  earningsSplit: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center' },
+  summaryLabel: { fontSize: 11, color: colors.icyMuted, letterSpacing: 1.5, fontWeight: '600' },
+  summaryCount: { fontSize: 44, fontWeight: '700', color: colors.icy },
+  summarySplit: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center' },
   splitChip: {
     borderWidth: 1, borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 5,
@@ -253,8 +245,8 @@ const styles = StyleSheet.create({
   checkboxOn: { backgroundColor: colors.purple, borderColor: colors.purple },
 
   rideInfo: { flex: 1, gap: 3 },
-  amountRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  rideAmount: { fontSize: 17, fontWeight: '700', color: colors.icy },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  rideTitle: { fontSize: 17, fontWeight: '700', color: colors.icy },
   acceptedPill: {
     backgroundColor: colors.onGreen + '22',
     borderRadius: 6,

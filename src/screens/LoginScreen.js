@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
+  View, Text, TextInput, TouchableOpacity, Image,
   StyleSheet, StatusBar, KeyboardAvoidingView,
-  Platform, Alert, ActivityIndicator,
+  Platform, Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
 import Screen from '../components/Screen';
-import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { saveUser } from '../utils/storage';
 import { replaceRoot } from '../navigation/rootNavigation';
-import { registerUser, verifyOtpWithServer } from '../services/api';
+import { verifyOtpWithServer } from '../services/api';
 import { initOtpWidget, isOtpConfigured, sendOtp, retryOtp, verifyOtp } from '../services/otp';
 
 /** Pure black — readable on light fills even if the OS is in dark mode. */
@@ -42,7 +41,6 @@ export default function LoginScreen({ navigation }) {
     setSending(true);
     try {
       const result = await sendOtp(phone);
-      // Invisible / already-verified path returns token immediately
       if (result.alreadyVerified && result.accessToken) {
         await finishLogin(result.accessToken);
         return;
@@ -64,7 +62,6 @@ export default function LoginScreen({ navigation }) {
     }
     setResending(true);
     try {
-      // Default widget channel — omit retryChannel when widget uses default SMS
       const { reqId: id } = await retryOtp(reqId);
       setReqId(id);
       Alert.alert('OTP resent', 'Check your SMS for a new code.');
@@ -76,33 +73,23 @@ export default function LoginScreen({ navigation }) {
   };
 
   const finishLogin = async (accessToken) => {
-    let serverReferralCode = null;
-    try {
-      if (accessToken) {
-        const reg = await verifyOtpWithServer({
-          phone,
-          accessToken,
-          referralCode: referralCode.trim() || undefined,
-        });
-        serverReferralCode = reg.referralCode;
-      } else {
-        const reg = await registerUser(phone, referralCode.trim() || undefined);
-        serverReferralCode = reg.referralCode;
-      }
-    } catch (err) {
-      // Device limit / blocked must stop login
-      if (err?.code === 'DEVICE_LIMIT' || err?.code === 'BLOCKED') {
-        throw err;
-      }
-      // If server OTP verify fails, do not continue
-      if (accessToken) throw err;
-      // Offline fallback only when no accessToken path
+    if (!accessToken) {
+      throw new Error('OTP token missing. Please request a new OTP.');
     }
+
+    const reg = await verifyOtpWithServer({
+      phone,
+      accessToken,
+      referralCode: referralCode.trim() || undefined,
+    });
+
     await saveUser({
       phone,
-      active: false,
-      referralCode: serverReferralCode,
+      active: !!reg.active,
+      referralCode: reg.referralCode || null,
       appliedReferralCode: referralCode.trim() || null,
+      subscriptionEnd: reg.subscriptionEnd || null,
+      planType: reg.planType || null,
     });
     replaceRoot(navigation, 'Main');
   };
@@ -129,14 +116,17 @@ export default function LoginScreen({ navigation }) {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.container}>
-
-          <View style={styles.logoWrap}>
-            <View style={styles.logoOrb}>
-              <Ionicons name="car-sport-outline" size={36} color={colors.purpleBright} />
-            </View>
-            <Text style={styles.logoName}>SUPER RIDEX</Text>
-            <Text style={styles.logoTag}>Auto-accept rides in milliseconds</Text>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.brandBlock}>
+            <Image
+              source={require('../../assets/AppIcons/playstore.png')}
+              style={styles.brandLogo}
+              resizeMode="contain"
+            />
           </View>
 
           <View style={styles.card}>
@@ -148,8 +138,8 @@ export default function LoginScreen({ navigation }) {
 
             {step === 'phone' ? (
               <>
-                <Text style={styles.cardTitle}>Enter Mobile Number</Text>
-                <Text style={styles.cardSub}>We'll send you a one-time verification code via SMS</Text>
+                <Text style={styles.cardTitle}>Welcome to Super Ridex</Text>
+                <Text style={styles.cardSub}>Enter your mobile number to get a one-time SMS code</Text>
 
                 <View style={styles.phoneRow}>
                   <View style={styles.flagBox}>
@@ -175,7 +165,7 @@ export default function LoginScreen({ navigation }) {
                 <Text style={styles.refLabel}>Referral Code (optional)</Text>
                 <TextInput
                   style={styles.inputStandalone}
-                  placeholder="e.g. PC1234ABC"
+                  placeholder="e.g. SR1234ABC"
                   placeholderTextColor={INPUT_PLACEHOLDER}
                   autoCapitalize="characters"
                   keyboardAppearance="light"
@@ -253,71 +243,66 @@ export default function LoginScreen({ navigation }) {
                   onPress={handleResendOtp}
                   disabled={busy}
                 >
-                  <Text style={styles.cardSub}>Didn't receive?  </Text>
+                  <Text style={styles.cardSub}>Didn&apos;t receive?  </Text>
                   <Text style={styles.link}>{resending ? 'Sending…' : 'Resend OTP'}</Text>
                 </TouchableOpacity>
               </>
             )}
           </View>
 
-          <Text style={styles.terms}>By continuing you agree to our Terms of Service</Text>
-        </View>
+          <Text style={styles.terms}>By continuing you agree to Super Ridex Terms of Service</Text>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  flex:    { flex: 1 },
-  container: {
-    flex: 1,
+  flex: { flex: 1 },
+  scroll: {
+    flexGrow: 1,
     paddingHorizontal: 24,
+    paddingVertical: 28,
     justifyContent: 'center',
-    gap: 28,
+    gap: 22,
   },
 
-  logoWrap:  { alignItems: 'center', gap: 10 },
-  logoOrb: {
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: colors.surface,
-    borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
+  brandBlock: { alignItems: 'center', gap: 10 },
+  brandLogo: {
+    width: 160,
+    height: 160,
+    borderRadius: 28,
   },
-  logoName: {
-    fontSize: 24, fontWeight: '700', color: colors.icy,
-    letterSpacing: 0.3,
-  },
-  logoTag:    { fontSize: 13, color: colors.icyDim },
 
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 24,
     borderWidth: 1,
     borderColor: colors.border,
     gap: 16,
   },
 
-  steps:       { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  steps: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   stepDot: {
     width: 10, height: 10, borderRadius: 5,
     backgroundColor: colors.border,
   },
   stepDotActive: { backgroundColor: colors.purple },
-  stepLine:    { flex: 1, height: 2, backgroundColor: colors.border, borderRadius: 2 },
+  stepLine: { flex: 1, height: 2, backgroundColor: colors.border, borderRadius: 2 },
   stepLineActive: { backgroundColor: colors.purple },
 
   cardTitle: { fontSize: 20, fontWeight: '800', color: colors.icy },
-  cardSub:   { fontSize: 13, color: colors.icyDim },
+  cardSub: { fontSize: 13, color: colors.icyDim, lineHeight: 18 },
 
-  phoneRow:  { flexDirection: 'row', gap: 10 },
+  phoneRow: { flexDirection: 'row', gap: 10 },
   flagBox: {
     backgroundColor: '#EEF3F9',
     borderRadius: 12, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 14, justifyContent: 'center',
   },
-  flagText:  { color: colors.icy, fontSize: 14 },
-  refLabel:  { fontSize: 12, color: colors.icyDim, fontWeight: '600' },
+  flagText: { color: colors.icy, fontSize: 14 },
+  refLabel: { fontSize: 12, color: colors.icyDim, fontWeight: '600' },
 
   input: {
     flex: 1,
@@ -354,7 +339,7 @@ const styles = StyleSheet.create({
   },
   btnText: { color: colors.white, fontSize: 16, fontWeight: '700' },
 
-  resendRow:   { flexDirection: 'row', justifyContent: 'center' },
-  link:        { color: colors.purpleBright, fontSize: 13, fontWeight: '600' },
-  terms:       { textAlign: 'center', color: colors.icyMuted, fontSize: 12 },
+  resendRow: { flexDirection: 'row', justifyContent: 'center' },
+  link: { color: colors.purpleBright, fontSize: 13, fontWeight: '600' },
+  terms: { textAlign: 'center', color: colors.icyMuted, fontSize: 12, marginBottom: 8 },
 });

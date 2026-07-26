@@ -35,7 +35,7 @@ const MIN_PRICE = 0;
 const MAX_PRICE = 2500;
 
 const SOCIAL_LINKS = {
-  whatsapp: 'https://whatsapp.com/channel/0029Vb8tNaXDOQIb9VZgJ644',
+  whatsapp: 'https://whatsapp.com/channel/0029Vb8CrnM72WTtKSpCMZ09',
   // Replace these with your real profile URLs when ready
   instagram: 'https://www.instagram.com/',
   youtube: 'https://www.youtube.com/',
@@ -66,6 +66,7 @@ export default function HomeScreen({ navigation }) {
     planType,
     subscriptionEnd,
     subscriptionStart,
+    subscription,
     loading: subLoading,
     refresh: refreshSub,
     deviceAllowed,
@@ -127,23 +128,33 @@ export default function HomeScreen({ navigation }) {
         const p = status.minPrice ?? 0;
         setMinPrice(p);
         setMinPriceText(String(p));
-        // Wait for subscription load before trusting native enabled flag
-        if (!subLoading && !featuresAllowed) {
-          await shutOffAutoAccept();
-        } else {
-          setEnabled(!!status.enabled && featuresAllowed);
+        if (subLoading) return;
+        const wantOn = !!status.enabled && featuresAllowed;
+        setEnabled(wantOn);
+        // Re-assert into a11y process memory (ColorOS often keeps stale enabled=false)
+        if (wantOn) {
+          try {
+            await setServiceEnabled(true);
+          } catch {
+            // ignore
+          }
         }
       })
       .catch(() => {});
   }, [subLoading, featuresAllowed]);
 
-  // Force auto-accept OFF the moment subscription ends or device is blocked
+  // Force native OFF only when plan end is past or device is blocked.
+  // Never treat a bare active===false (API glitch / loading) as shutoff —
+  // that was wiping Auto-accept and making zero rides click.
   useEffect(() => {
     if (subLoading) return;
-    if (!featuresAllowed) {
+    if (!subscription) return;
+    const endPast = !!subscription.subscriptionEnd
+      && new Date(subscription.subscriptionEnd) <= new Date();
+    if (endPast || deviceAllowed === false) {
       shutOffAutoAccept();
     }
-  }, [featuresAllowed, subLoading]);
+  }, [subLoading, subscription, deviceAllowed]);
 
   useEffect(() => {
     const unsub = onRideAccepted((event) => {
@@ -171,7 +182,7 @@ export default function HomeScreen({ navigation }) {
       if (!deviceAllowed) {
         Alert.alert(
           'Device Not Allowed',
-          'This account is linked to another device. Contact support to change devices.'
+          'Log out and sign in again with OTP — that moves your plan to this phone. If it still fails, use Reset devices in the admin panel.'
         );
         return;
       }
@@ -209,7 +220,7 @@ export default function HomeScreen({ navigation }) {
         if (ent.deviceAllowed === false) {
           Alert.alert(
             'Device Not Allowed',
-            'This account is linked to another device. Contact support.'
+            'Log out and sign in again with OTP — that moves your plan to this phone. If it still fails, use Reset devices in the admin panel.'
           );
           return;
         }
@@ -290,12 +301,20 @@ export default function HomeScreen({ navigation }) {
       Alert.alert('Android Only', 'Native auto-clicker runs on a built Android app.');
       return;
     }
+    if (subLoading) {
+      Alert.alert('Please wait', 'Subscription is still loading — try Save again in a moment.');
+      return;
+    }
     setSaving(true);
     try {
       const settings = await getSettings();
+      const status = await getServiceStatus();
+      // Never persist stale Home defaults over live native prefs (was resetting min→0 / enabled→off).
+      const nextEnabled = featuresAllowed ? enabled : false;
+      const nextMin = Number.isFinite(minPrice) ? minPrice : (status.minPrice ?? 0);
       await saveSettings({
-        enabled,
-        minPrice,
+        enabled: nextEnabled,
+        minPrice: nextMin,
         nuclearMode,
         delayMs: nuclearMode ? 0 : (settings.delayMs ?? 0),
         monitoredPackages: DEFAULT_PACKAGES,

@@ -17,24 +17,37 @@ public class RideAlertListener extends NotificationListenerService {
 
   private static final String TAG = "RideAlertListener";
   private static final boolean DEBUG_LOG = false;
+  private static final long SKIP_LOG_MIN_INTERVAL_MS = 1500L;
 
   /** Reused on NLS binder thread — not concurrent with itself for a single listener. */
   private final StringBuilder scratchSb = new StringBuilder(256);
+  private long lastSkipDisabledLogUptime = 0L;
 
   @Override
   public void onListenerConnected() {
     super.onListenerConnected();
+    AutoClickerConfig.init(this);
     Log.i(TAG, "NLS_CONNECTED enabled=" + AutoClickerConfig.isEnabled()
-        + " nuclear=" + AutoClickerConfig.isNuclearMode());
+        + " nuclear=" + AutoClickerConfig.isNuclearMode()
+        + " min=" + AutoClickerConfig.getMinPrice());
   }
 
   @Override
   public void onNotificationPosted(StatusBarNotification sbn) {
     if (sbn == null) return;
 
+    AutoClickerConfig.ensureInit(this);
     String pkg = sbn.getPackageName();
     if (pkg == null || !AutoClickerConfig.isPackageMonitored(pkg)) return;
-    if (!AutoClickerConfig.isEnabled()) return;
+    if (!AutoClickerConfig.isEnabled()) {
+      long now = SystemClock.uptimeMillis();
+      if (now - lastSkipDisabledLogUptime >= SKIP_LOG_MIN_INTERVAL_MS) {
+        lastSkipDisabledLogUptime = now;
+        Log.w(TAG, "SKIP_DISABLED pkg=" + pkg
+            + " — Auto-accept OFF (turn ON in SUPER RIDEX Home)");
+      }
+      return;
+    }
 
     // Do NOT skip ongoing — captain ride alerts are often ongoing/heads-up.
     final long tReceive = SystemClock.uptimeMillis();
