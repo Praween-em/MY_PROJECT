@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput,
   StyleSheet, StatusBar, ScrollView,
   Animated, Alert, Linking,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import Screen from '../components/Screen';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -34,11 +35,11 @@ import {
 const MIN_PRICE = 0;
 const MAX_PRICE = 2500;
 
-/** Fallback only if API/DB unreachable — real URLs come from GET /socials */
+/** Offline fallback only — live URLs come from GET /socials (admin panel). */
 const DEFAULT_SOCIAL_LINKS = {
-  whatsapp: 'https://whatsapp.com/channel/0029Vb8CrnM72WTtKSpCMZ09',
-  instagram: 'https://www.instagram.com/',
-  youtube: 'https://www.youtube.com/',
+  whatsapp: '',
+  instagram: '',
+  youtube: '',
 };
 
 const openSocialLink = async (url) => {
@@ -171,24 +172,26 @@ export default function HomeScreen({ navigation }) {
     return unsub;
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    getSocialLinks()
-      .then((data) => {
-        if (cancelled || !data) return;
-        setSocialLinks({
-          whatsapp: data.whatsapp || DEFAULT_SOCIAL_LINKS.whatsapp,
-          instagram: data.instagram || DEFAULT_SOCIAL_LINKS.instagram,
-          youtube: data.youtube || DEFAULT_SOCIAL_LINKS.youtube,
-          telegram: data.telegram || '',
-          support: data.support || '',
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      getSocialLinks()
+        .then((data) => {
+          if (cancelled || !data) return;
+          setSocialLinks({
+            whatsapp: data.whatsapp || '',
+            instagram: data.instagram || '',
+            youtube: data.youtube || '',
+            telegram: data.telegram || '',
+            support: data.support || '',
+          });
+        })
+        .catch(() => {
+          // Keep last known / empty offline
         });
-      })
-      .catch(() => {
-        // Keep defaults offline
-      });
-    return () => { cancelled = true; };
-  }, []);
+      return () => { cancelled = true; };
+    }, [])
+  );
 
   const handleModeChange = async (nuclear) => {
     setNuclear(nuclear);

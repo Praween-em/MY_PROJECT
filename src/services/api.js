@@ -15,7 +15,8 @@ function resolveBaseUrl() {
   if (url && !/^https?:\/\//i.test(url)) {
     url = `https://${url}`;
   }
-  return url || 'https://api.playnix.in';
+  // Production Railway backend (admin panel + DB social links live here)
+  return url || 'https://superridexversion2-production.up.railway.app';
 }
 
 const BASE_URL = resolveBaseUrl();

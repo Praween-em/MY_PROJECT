@@ -57,7 +57,9 @@ export default {
       favicon: './assets/AppIcons/playstore.png',
     },
     extra: {
-      apiUrl: process.env.EXPO_PUBLIC_API_URL,
+      apiUrl:
+        process.env.EXPO_PUBLIC_API_URL ||
+        'https://superridexversion2-production.up.railway.app',
       razorpayKeyId: process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID,
       razorpayMode: process.env.EXPO_PUBLIC_RAZORPAY_MODE || 'test',
       msg91WidgetId: process.env.EXPO_PUBLIC_MSG91_WIDGET_ID,
