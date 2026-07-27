@@ -22,6 +22,7 @@ const referralRoutes = require('./routes/referral');
 const entitlementRoutes = require('./routes/entitlement');
 const adminRoutes = require('./routes/admin');
 const authRoutes = require('./routes/auth');
+const socialsRoutes = require('./routes/socials');
 const { ping } = require('./config/db');
 
 const app = express();
@@ -41,6 +42,7 @@ app.use('/subscription', subscriptionRoutes);
 app.use('/referral', referralRoutes);
 app.use('/entitlement', entitlementRoutes);
 app.use('/webhook', webhookRoutes);
+app.use('/socials', socialsRoutes);
 app.use('/admin/api', adminRoutes);
 
 // Simple admin panel (static)

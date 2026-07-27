@@ -48,6 +48,7 @@ export default {
         'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
         'android.permission.POST_NOTIFICATIONS',
         'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+        'android.permission.WAKE_LOCK',
         'android.permission.INTERNET',
         'android.permission.ACCESS_NETWORK_STATE',
       ],

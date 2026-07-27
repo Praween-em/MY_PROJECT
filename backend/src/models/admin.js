@@ -173,6 +173,26 @@ async function listAllPayments(limit = 100) {
   }));
 }
 
+async function listAuditLogs(limit = 100) {
+  const { rows } = await query(
+    `SELECT l.id, l.action, l.target_phone, l.details, l.created_at,
+            a.email AS admin_email
+     FROM admin_audit_logs l
+     LEFT JOIN admin_users a ON a.id = l.admin_id
+     ORDER BY l.created_at DESC
+     LIMIT $1`,
+    [Math.min(Math.max(Number(limit) || 100, 1), 500)]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    action: r.action,
+    targetPhone: r.target_phone,
+    details: r.details,
+    adminEmail: r.admin_email,
+    createdAt: r.created_at,
+  }));
+}
+
 module.exports = {
   hashPassword,
   verifyPassword,
@@ -185,4 +205,5 @@ module.exports = {
   listPaidCustomers,
   listActiveSubscriptions,
   listAllPayments,
+  listAuditLogs,
 };

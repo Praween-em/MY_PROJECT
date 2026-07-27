@@ -20,7 +20,7 @@ import { clearUser, getStoredUser } from '../utils/storage';
 import { getSettings } from '../utils/settingsStorage';
 import { formatExpiryDate, formatPlanLabel } from '../utils/formatDate';
 import AppSwitch from '../components/AppSwitch';
-import { checkEntitlement, ApiError } from '../services/api';
+import { checkEntitlement, ApiError, getSocialLinks } from '../services/api';
 import {
   getServiceStatus,
   onRideAccepted,
@@ -34,14 +34,18 @@ import {
 const MIN_PRICE = 0;
 const MAX_PRICE = 2500;
 
-const SOCIAL_LINKS = {
+/** Fallback only if API/DB unreachable — real URLs come from GET /socials */
+const DEFAULT_SOCIAL_LINKS = {
   whatsapp: 'https://whatsapp.com/channel/0029Vb8CrnM72WTtKSpCMZ09',
-  // Replace these with your real profile URLs when ready
   instagram: 'https://www.instagram.com/',
   youtube: 'https://www.youtube.com/',
 };
 
 const openSocialLink = async (url) => {
+  if (!url) {
+    Alert.alert('Link unavailable', 'This social link is not configured yet.');
+    return;
+  }
   try {
     await Linking.openURL(url);
   } catch {
@@ -78,6 +82,7 @@ export default function HomeScreen({ navigation }) {
   const [minPriceText, setMinPriceText] = useState('0');
   const [elapsed, setElapsed]       = useState(0);
   const [saving, setSaving]         = useState(false);
+  const [socialLinks, setSocialLinks] = useState(DEFAULT_SOCIAL_LINKS);
   const [ridesAccepted, setRidesAccepted] = useState(0);
   const [lastLatency, setLastLatency] = useState(null);
 
@@ -164,6 +169,25 @@ export default function HomeScreen({ navigation }) {
       }
     });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSocialLinks()
+      .then((data) => {
+        if (cancelled || !data) return;
+        setSocialLinks({
+          whatsapp: data.whatsapp || DEFAULT_SOCIAL_LINKS.whatsapp,
+          instagram: data.instagram || DEFAULT_SOCIAL_LINKS.instagram,
+          youtube: data.youtube || DEFAULT_SOCIAL_LINKS.youtube,
+          telegram: data.telegram || '',
+          support: data.support || '',
+        });
+      })
+      .catch(() => {
+        // Keep defaults offline
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const handleModeChange = async (nuclear) => {
@@ -542,35 +566,51 @@ export default function HomeScreen({ navigation }) {
         </TouchableOpacity>
 
         <View style={styles.helpSocialCard}>
-          <TouchableOpacity
-            style={styles.helpBtn}
-            onPress={() => openSocialLink(SOCIAL_LINKS.whatsapp)}
-            activeOpacity={0.75}
-          >
-            <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
-            <Text style={styles.helpText}>Need help?</Text>
-          </TouchableOpacity>
+          {!!socialLinks.whatsapp && (
+            <TouchableOpacity
+              style={styles.helpBtn}
+              onPress={() => openSocialLink(socialLinks.whatsapp)}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
+              <Text style={styles.helpText}>Need help?</Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.socialsDivider} />
 
           <Text style={styles.socialsLabel}>SOCIALS</Text>
           <View style={styles.socialsRow}>
-            <TouchableOpacity
-              style={styles.socialBtn}
-              onPress={() => openSocialLink(SOCIAL_LINKS.instagram)}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="logo-instagram" size={22} color="#E4405F" />
-              <Text style={styles.socialBtnText}>Instagram</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.socialBtn}
-              onPress={() => openSocialLink(SOCIAL_LINKS.youtube)}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="logo-youtube" size={22} color="#FF0000" />
-              <Text style={styles.socialBtnText}>YouTube</Text>
-            </TouchableOpacity>
+            {!!socialLinks.instagram && (
+              <TouchableOpacity
+                style={styles.socialBtn}
+                onPress={() => openSocialLink(socialLinks.instagram)}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="logo-instagram" size={22} color="#E4405F" />
+                <Text style={styles.socialBtnText}>Instagram</Text>
+              </TouchableOpacity>
+            )}
+            {!!socialLinks.youtube && (
+              <TouchableOpacity
+                style={styles.socialBtn}
+                onPress={() => openSocialLink(socialLinks.youtube)}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="logo-youtube" size={22} color="#FF0000" />
+                <Text style={styles.socialBtnText}>YouTube</Text>
+              </TouchableOpacity>
+            )}
+            {!!socialLinks.telegram && (
+              <TouchableOpacity
+                style={styles.socialBtn}
+                onPress={() => openSocialLink(socialLinks.telegram)}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="paper-plane" size={22} color="#229ED9" />
+                <Text style={styles.socialBtnText}>Telegram</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </ScrollView>

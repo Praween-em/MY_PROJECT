@@ -54,7 +54,7 @@ EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3000
 ## Admin device-change playbook
 
 1. Open `/admin` → search phone  
-2. **Reset all devices** (user moved to a new phone), **or** raise max devices to 2/3  
+2. **Reset all devices** (user moved to a new phone), **or** raise max devices to 2–5  
 3. User opens the app on the new phone → device binds automatically  
 
 ## Railway (later)

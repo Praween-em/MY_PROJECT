@@ -129,3 +129,8 @@ export async function verifyOtpWithServer({ phone, accessToken, referralCode }) 
     referralCode,
   });
 }
+
+/** Public social / help links from DB (admin-editable). */
+export async function getSocialLinks() {
+  return request('GET', '/socials');
+}

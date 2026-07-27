@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   plan_type VARCHAR(32),
   razorpay_order_id VARCHAR(128),
   razorpay_payment_id VARCHAR(128),
-  max_devices INTEGER NOT NULL DEFAULT 1 CHECK (max_devices >= 1 AND max_devices <= 3),
+  max_devices INTEGER NOT NULL DEFAULT 1 CHECK (max_devices >= 1 AND max_devices <= 5),
   status VARCHAR(16) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'blocked')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

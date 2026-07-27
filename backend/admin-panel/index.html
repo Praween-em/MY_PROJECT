@@ -13,15 +13,16 @@
     body { margin: 0; font-family: system-ui, Segoe UI, sans-serif; background: var(--bg); color: var(--text); }
     header { background: var(--blue); color: #fff; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
     header h1 { margin: 0; font-size: 17px; letter-spacing: 1px; }
-    main { max-width: 1100px; margin: 20px auto; padding: 0 16px 40px; }
+    main { max-width: 1140px; margin: 20px auto; padding: 0 16px 48px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 14px; }
     label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
-    input, select, button { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); }
-    input, select { width: 100%; background: #fff; color: #000; }
+    input, select, button, textarea { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); }
+    input, select, textarea { width: 100%; background: #fff; color: #000; }
     button { background: var(--blue); color: #fff; border: none; cursor: pointer; font-weight: 700; }
     button.secondary { background: #fff; color: var(--blue); border: 1px solid var(--blue); }
     button.danger { background: var(--danger); }
     button.ok { background: var(--ok); }
+    button.ghost { background: #eef3f9; color: var(--text); border: 1px solid var(--border); }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     .row > * { flex: 1; min-width: 140px; }
@@ -35,16 +36,32 @@
     th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
     .hidden { display: none !important; }
     .error { color: var(--danger); font-size: 13px; margin-top: 8px; }
+    .ok-msg { color: var(--ok); font-size: 13px; margin-top: 8px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
     .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
     .tab { background: #fff; color: var(--text); border: 1px solid var(--border); }
     .tab.active { background: var(--blue); color: #fff; border-color: var(--blue); }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-    .stat { background: #eef3f9; border-radius: 10px; padding: 14px; }
+    .stat { background: #eef3f9; border-radius: 10px; padding: 14px; cursor: pointer; border: 1px solid transparent; transition: .15s; }
+    .stat:hover { border-color: var(--blue); background: #e3eefc; }
     .stat b { display: block; font-size: 22px; margin-top: 4px; }
     .stat span { font-size: 12px; color: var(--muted); font-weight: 600; }
-    .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+    .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; }
     .section-title { margin: 0 0 12px; font-size: 16px; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .toast {
+      position: fixed; right: 16px; bottom: 16px; z-index: 50;
+      background: #0f172a; color: #fff; padding: 12px 16px; border-radius: 10px;
+      box-shadow: 0 8px 24px #0004; max-width: 360px; display: none;
+    }
+    .toast.show { display: block; }
+    .toast.err { background: var(--danger); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+    .quick { display: flex; gap: 6px; flex-wrap: wrap; }
+    .quick button { padding: 6px 10px; font-size: 12px; }
+    h3 { margin: 18px 0 8px; font-size: 14px; }
+    h3:first-of-type { margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -55,7 +72,7 @@
   <main>
     <section id="loginView" class="card">
       <h2>Admin Login</h2>
-      <p class="muted">View paid customers, subscriptions, payments. Block users and manage multi-device access.</p>
+      <p class="muted">Manage users, subscriptions, devices, payments, social links, and audit log.</p>
       <div class="row" style="margin-top:12px">
         <div>
           <label>Email</label>
@@ -73,73 +90,146 @@
     <section id="appView" class="hidden">
       <div class="tabs">
         <button class="tab active" data-tab="overview">Overview</button>
-        <button class="tab" data-tab="subscriptions">Active Subscriptions</button>
+        <button class="tab" data-tab="subscriptions">Subscriptions</button>
         <button class="tab" data-tab="paid">Paid Customers</button>
-        <button class="tab" data-tab="payments">Successful Payments</button>
-        <button class="tab" data-tab="users">Find User</button>
+        <button class="tab" data-tab="payments">Payments</button>
+        <button class="tab" data-tab="users">Users</button>
+        <button class="tab" data-tab="socials">Social Links</button>
+        <button class="tab" data-tab="audit">Audit Log</button>
         <button class="secondary" id="logoutBtn" style="margin-left:auto">Logout</button>
       </div>
 
       <div id="tab-overview" class="card tab-panel">
-        <h3 class="section-title">Dashboard</h3>
+        <div class="toolbar">
+          <h3 class="section-title" style="margin:0;flex:1">Dashboard</h3>
+          <button class="ghost" id="refreshOverview">Refresh</button>
+        </div>
         <div id="statsGrid" class="stats"><p class="muted">Loading…</p></div>
+        <p class="muted" style="margin-top:12px">Click a stat card to jump to that list.</p>
       </div>
 
       <div id="tab-subscriptions" class="card tab-panel hidden">
-        <h3 class="section-title">Active Subscriptions</h3>
-        <p class="muted">Customers with a valid plan right now (read-only list). Click Open to manage.</p>
-        <div id="subsTable" style="margin-top:12px; overflow-x:auto"></div>
+        <div class="toolbar">
+          <h3 class="section-title" style="margin:0;flex:1">Active Subscriptions</h3>
+          <select id="subsLimit" style="width:110px">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+          </select>
+          <button class="ghost" id="refreshSubs">Refresh</button>
+        </div>
+        <div id="subsTable" style="overflow-x:auto"></div>
       </div>
 
       <div id="tab-paid" class="card tab-panel hidden">
-        <h3 class="section-title">Paid Customers</h3>
-        <p class="muted">Anyone who completed at least one successful payment.</p>
-        <div id="paidTable" style="margin-top:12px; overflow-x:auto"></div>
+        <div class="toolbar">
+          <h3 class="section-title" style="margin:0;flex:1">Paid Customers</h3>
+          <select id="paidLimit" style="width:110px">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+          </select>
+          <button class="ghost" id="refreshPaid">Refresh</button>
+        </div>
+        <div id="paidTable" style="overflow-x:auto"></div>
       </div>
 
       <div id="tab-payments" class="card tab-panel hidden">
-        <h3 class="section-title">Successful Payments</h3>
-        <p class="muted">Captured Razorpay payments with date & time.</p>
-        <div id="paymentsTable" style="margin-top:12px; overflow-x:auto"></div>
+        <div class="toolbar">
+          <h3 class="section-title" style="margin:0;flex:1">Successful Payments</h3>
+          <select id="payLimit" style="width:110px">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+          </select>
+          <button class="ghost" id="refreshPayments">Refresh</button>
+        </div>
+        <div id="paymentsTable" style="overflow-x:auto"></div>
       </div>
 
       <div id="tab-users" class="card tab-panel hidden">
-        <div class="row">
+        <div class="grid-2">
           <div>
             <label>Search phone or referral code</label>
-            <input id="searchQ" placeholder="9876543210 or PC1234ABC" />
+            <div class="row">
+              <input id="searchQ" placeholder="9876543210 or referral code" />
+              <div style="flex:0"><button id="searchBtn">Search</button></div>
+            </div>
+            <p class="muted">Empty search = latest users.</p>
           </div>
-          <div style="flex:0">
-            <label>&nbsp;</label>
-            <button id="searchBtn">Search</button>
+          <div>
+            <label>Create / ensure user by phone</label>
+            <div class="row">
+              <input id="createPhone" placeholder="10-digit phone" maxlength="10" />
+              <div style="flex:0"><button class="ok" id="createUserBtn">Create</button></div>
+            </div>
+            <p class="muted">Lets you grant a plan before first OTP login.</p>
           </div>
         </div>
-        <div id="userList" style="margin-top:12px; overflow-x:auto"></div>
+        <div id="userList" style="margin-top:14px; overflow-x:auto"></div>
+      </div>
+
+      <div id="tab-socials" class="card tab-panel hidden">
+        <h3 class="section-title">Social / Help Links</h3>
+        <p class="muted">App reads these from <code>GET /socials</code>. Edit anytime — no app rebuild.</p>
+        <div id="socialsForm" style="margin-top:14px"></div>
+        <div class="actions">
+          <button id="saveSocialsBtn">Save social links</button>
+          <button class="ghost" id="reloadSocialsBtn">Reload</button>
+        </div>
+        <div id="socialsMsg" class="muted" style="margin-top:8px"></div>
+      </div>
+
+      <div id="tab-audit" class="card tab-panel hidden">
+        <div class="toolbar">
+          <h3 class="section-title" style="margin:0;flex:1">Audit Log</h3>
+          <select id="auditLimit" style="width:110px">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+          </select>
+          <button class="ghost" id="refreshAudit">Refresh</button>
+        </div>
+        <div id="auditTable" style="overflow-x:auto"></div>
       </div>
 
       <div id="detail" class="card hidden"></div>
     </section>
   </main>
+  <div id="toast" class="toast"></div>
 
   <script>
     const tokenKey = 'sr_admin_token';
     let token = localStorage.getItem(tokenKey) || '';
+    let currentPhone = null;
 
     function fmtDT(v) {
       if (!v) return '—';
       const d = new Date(v);
-      if (Number.isNaN(d.getTime())) return '—';
-      return d.toLocaleString();
-    }
-    function fmtDate(v) {
-      if (!v) return '—';
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) return '—';
-      return d.toLocaleDateString();
+      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
     }
     function money(paise) {
       if (paise == null) return '—';
-      return '₹' + (Math.round(paise / 100)).toLocaleString('en-IN');
+      return '₹' + Math.round(paise / 100).toLocaleString('en-IN');
+    }
+    function toast(msg, isErr) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = 'toast show' + (isErr ? ' err' : '');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 3200);
+    }
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+    function toLocalInputValue(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '';
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
 
     async function api(path, options = {}) {
@@ -147,7 +237,10 @@
       if (token) headers.Authorization = 'Bearer ' + token;
       const res = await fetch('/admin/api' + path, { ...options, headers });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || 'Request failed');
+      if (!res.ok) {
+        if (res.status === 401) showLogin();
+        throw new Error(data.message || 'Request failed');
+      }
       return data;
     }
 
@@ -162,17 +255,21 @@
       document.getElementById('headerRight').textContent = admin?.email || 'Signed in';
     }
 
-    document.querySelectorAll('.tab').forEach(btn => {
-      btn.onclick = () => {
-        document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-        document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
-        if (btn.dataset.tab === 'overview') loadOverview();
-        if (btn.dataset.tab === 'subscriptions') loadSubscriptions();
-        if (btn.dataset.tab === 'paid') loadPaid();
-        if (btn.dataset.tab === 'payments') loadPayments();
-      };
+    function switchTab(name) {
+      document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+      document.querySelectorAll('.tab-panel').forEach((p) => p.classList.add('hidden'));
+      document.getElementById('tab-' + name).classList.remove('hidden');
+      if (name === 'overview') loadOverview();
+      if (name === 'subscriptions') loadSubscriptions();
+      if (name === 'paid') loadPaid();
+      if (name === 'payments') loadPayments();
+      if (name === 'users') runSearch();
+      if (name === 'socials') loadSocials();
+      if (name === 'audit') loadAudit();
+    }
+
+    document.querySelectorAll('.tab').forEach((btn) => {
+      btn.onclick = () => switchTab(btn.dataset.tab);
     });
 
     document.getElementById('loginBtn').onclick = async () => {
@@ -185,113 +282,209 @@
         token = data.token;
         localStorage.setItem(tokenKey, token);
         showApp(data.admin);
-        loadOverview();
+        switchTab('overview');
       } catch (e) { err.textContent = e.message; }
     };
-
     document.getElementById('logoutBtn').onclick = () => {
       token = ''; localStorage.removeItem(tokenKey); showLogin();
     };
+
+    document.getElementById('refreshOverview').onclick = () => loadOverview();
+    document.getElementById('refreshSubs').onclick = () => loadSubscriptions();
+    document.getElementById('refreshPaid').onclick = () => loadPaid();
+    document.getElementById('refreshPayments').onclick = () => loadPayments();
+    document.getElementById('refreshAudit').onclick = () => loadAudit();
+    document.getElementById('subsLimit').onchange = () => loadSubscriptions();
+    document.getElementById('paidLimit').onchange = () => loadPaid();
+    document.getElementById('payLimit').onchange = () => loadPayments();
+    document.getElementById('auditLimit').onchange = () => loadAudit();
     document.getElementById('searchBtn').onclick = () => runSearch();
+    document.getElementById('searchQ').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') runSearch();
+    });
+    document.getElementById('reloadSocialsBtn').onclick = () => loadSocials();
+
+    document.getElementById('createUserBtn').onclick = async () => {
+      const phone = document.getElementById('createPhone').value.replace(/\D/g, '');
+      if (!/^\d{10}$/.test(phone)) return toast('Enter a valid 10-digit phone', true);
+      try {
+        await api('/users', { method: 'POST', body: JSON.stringify({ phone }) });
+        toast('User created / ensured');
+        document.getElementById('searchQ').value = phone;
+        await runSearch();
+        openUser(phone);
+      } catch (e) { toast(e.message, true); }
+    };
 
     async function loadOverview() {
       const el = document.getElementById('statsGrid');
       el.innerHTML = '<p class="muted">Loading…</p>';
       try {
+        await api('/me');
         const { stats } = await api('/dashboard');
-        el.innerHTML = [
-          ['Total users', stats.totalUsers],
-          ['Active subscriptions', stats.activeSubscriptions],
-          ['Paid customers', stats.paidCustomers],
-          ['Successful payments', stats.successfulPayments],
-          ['Revenue (captured)', '₹' + (stats.revenueInr || 0).toLocaleString('en-IN')],
-          ['Blocked users', stats.blockedUsers],
-          ['Bound devices', stats.boundDevices],
-        ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+        const cards = [
+          ['Total users', stats.totalUsers, 'users'],
+          ['Active subscriptions', stats.activeSubscriptions, 'subscriptions'],
+          ['Paid customers', stats.paidCustomers, 'paid'],
+          ['Successful payments', stats.successfulPayments, 'payments'],
+          ['Revenue (captured)', '₹' + (stats.revenueInr || 0).toLocaleString('en-IN'), 'payments'],
+          ['Blocked users', stats.blockedUsers, 'users'],
+          ['Bound devices', stats.boundDevices, 'users'],
+        ];
+        el.innerHTML = cards.map(([k, v, tab]) =>
+          `<div class="stat" data-goto="${tab}"><span>${k}</span><b>${v}</b></div>`
+        ).join('');
+        el.querySelectorAll('.stat').forEach((s) => {
+          s.onclick = () => switchTab(s.dataset.goto);
+        });
       } catch (e) {
-        el.innerHTML = `<p class="error">${e.message}</p>`;
-        if (/Admin auth/i.test(e.message)) showLogin();
+        el.innerHTML = `<p class="error">${esc(e.message)}</p>`;
       }
     }
 
     function openBtn(phone) {
-      return `<button class="secondary" data-phone="${phone}">Open</button>`;
+      return `<button class="secondary" data-phone="${esc(phone)}">Manage</button>`;
     }
-
-    function bindOpenButtons(root) {
-      root.querySelectorAll('button[data-phone]').forEach(btn => {
+    function quickActions(phone, opts = {}) {
+      const p = esc(phone);
+      return `<div class="quick">
+        <button class="secondary" data-phone="${p}">Manage</button>
+        ${opts.block
+          ? `<button class="danger" data-quick-block="${p}">Block</button>`
+          : `<button class="ghost" data-quick-unblock="${p}">Unblock</button>`}
+        <button class="ok" data-quick-grant="${p}" data-plan="monthly">+1 mo</button>
+        <button class="ok" data-quick-grant="${p}" data-plan="quarterly">+3 mo</button>
+        <button class="ghost" data-quick-reset="${p}">Reset devices</button>
+      </div>`;
+    }
+    function bindRowActions(root) {
+      root.querySelectorAll('button[data-phone]').forEach((btn) => {
         btn.onclick = () => openUser(btn.dataset.phone);
       });
+      root.querySelectorAll('[data-quick-block]').forEach((btn) => {
+        btn.onclick = async () => {
+          if (!confirm('Block ' + btn.dataset.quickBlock + '?')) return;
+          try {
+            await api('/users/' + btn.dataset.quickBlock, { method: 'PATCH', body: JSON.stringify({ status: 'blocked' }) });
+            toast('User blocked');
+            refreshCurrentLists();
+            if (currentPhone === btn.dataset.quickBlock) openUser(currentPhone);
+          } catch (e) { toast(e.message, true); }
+        };
+      });
+      root.querySelectorAll('[data-quick-unblock]').forEach((btn) => {
+        btn.onclick = async () => {
+          try {
+            await api('/users/' + btn.dataset.quickUnblock, { method: 'PATCH', body: JSON.stringify({ status: 'active' }) });
+            toast('User unblocked');
+            refreshCurrentLists();
+            if (currentPhone === btn.dataset.quickUnblock) openUser(currentPhone);
+          } catch (e) { toast(e.message, true); }
+        };
+      });
+      root.querySelectorAll('[data-quick-grant]').forEach((btn) => {
+        btn.onclick = async () => {
+          try {
+            await api('/users/' + btn.dataset.quickGrant, {
+              method: 'PATCH',
+              body: JSON.stringify({ grantPlan: btn.dataset.plan }),
+            });
+            toast('Granted ' + btn.dataset.plan);
+            refreshCurrentLists();
+            if (currentPhone === btn.dataset.quickGrant) openUser(currentPhone);
+          } catch (e) { toast(e.message, true); }
+        };
+      });
+      root.querySelectorAll('[data-quick-reset]').forEach((btn) => {
+        btn.onclick = async () => {
+          if (!confirm('Reset ALL devices for ' + btn.dataset.quickReset + '?')) return;
+          try {
+            await api('/users/' + btn.dataset.quickReset + '/devices/reset', { method: 'POST', body: '{}' });
+            toast('Devices reset');
+            if (currentPhone === btn.dataset.quickReset) openUser(currentPhone);
+          } catch (e) { toast(e.message, true); }
+        };
+      });
+    }
+    function refreshCurrentLists() {
+      const active = document.querySelector('.tab.active')?.dataset.tab;
+      if (active === 'subscriptions') loadSubscriptions();
+      if (active === 'paid') loadPaid();
+      if (active === 'users') runSearch();
+      if (active === 'overview') loadOverview();
     }
 
     async function loadSubscriptions() {
       const el = document.getElementById('subsTable');
       el.innerHTML = '<p class="muted">Loading…</p>';
       try {
-        const { subscriptions } = await api('/subscriptions');
+        const limit = document.getElementById('subsLimit').value;
+        const { subscriptions } = await api('/subscriptions?limit=' + limit);
         if (!subscriptions.length) { el.innerHTML = '<p class="muted">No active subscriptions</p>'; return; }
         el.innerHTML = `<table><thead><tr>
-          <th>Phone</th><th>Plan</th><th>Started</th><th>Expires</th><th>Devices</th><th>Max</th><th></th>
+          <th>Phone</th><th>Plan</th><th>Started</th><th>Expires</th><th>Devices</th><th>Max</th><th>Actions</th>
         </tr></thead><tbody>
-          ${subscriptions.map(u => `<tr>
-            <td>${u.phone}</td>
-            <td>${u.planType || '—'} <span class="pill ok">ACTIVE</span></td>
+          ${subscriptions.map((u) => `<tr>
+            <td>${esc(u.phone)}</td>
+            <td>${esc(u.planType || '—')} <span class="pill ok">ACTIVE</span></td>
             <td>${fmtDT(u.subscriptionStart)}</td>
             <td>${fmtDT(u.subscriptionEnd)}</td>
             <td>${u.deviceCount ?? '—'}</td>
             <td>${u.maxDevices}</td>
-            <td>${openBtn(u.phone)}</td>
+            <td>${quickActions(u.phone, { block: true })}</td>
           </tr>`).join('')}
         </tbody></table>`;
-        bindOpenButtons(el);
-      } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
+        bindRowActions(el);
+      } catch (e) { el.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
     }
 
     async function loadPaid() {
       const el = document.getElementById('paidTable');
       el.innerHTML = '<p class="muted">Loading…</p>';
       try {
-        const { customers } = await api('/paid-customers');
+        const limit = document.getElementById('paidLimit').value;
+        const { customers } = await api('/paid-customers?limit=' + limit);
         if (!customers.length) { el.innerHTML = '<p class="muted">No paid customers yet</p>'; return; }
         el.innerHTML = `<table><thead><tr>
-          <th>Phone</th><th>Status</th><th>Plan</th><th>Expires</th><th>Payments</th><th>Last payment</th><th>Account</th><th></th>
+          <th>Phone</th><th>Sub</th><th>Plan</th><th>Expires</th><th>Payments</th><th>Last pay</th><th>Account</th><th>Actions</th>
         </tr></thead><tbody>
-          ${customers.map(u => `<tr>
-            <td>${u.phone}</td>
+          ${customers.map((u) => `<tr>
+            <td>${esc(u.phone)}</td>
             <td>${u.active ? '<span class="pill ok">ACTIVE</span>' : '<span class="pill bad">EXPIRED</span>'}</td>
-            <td>${u.planType || '—'}</td>
+            <td>${esc(u.planType || '—')}</td>
             <td>${fmtDT(u.subscriptionEnd)}</td>
             <td>${u.paymentCount}</td>
             <td>${fmtDT(u.lastPaymentAt)}</td>
             <td>${u.status === 'blocked' ? '<span class="pill bad">BLOCKED</span>' : '<span class="pill ok">OK</span>'}</td>
-            <td>${openBtn(u.phone)}</td>
+            <td>${quickActions(u.phone, { block: u.status !== 'blocked' })}</td>
           </tr>`).join('')}
         </tbody></table>`;
-        bindOpenButtons(el);
-      } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
+        bindRowActions(el);
+      } catch (e) { el.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
     }
 
     async function loadPayments() {
       const el = document.getElementById('paymentsTable');
       el.innerHTML = '<p class="muted">Loading…</p>';
       try {
-        const { payments } = await api('/payments');
+        const limit = document.getElementById('payLimit').value;
+        const { payments } = await api('/payments?limit=' + limit);
         if (!payments.length) { el.innerHTML = '<p class="muted">No successful payments yet</p>'; return; }
         el.innerHTML = `<table><thead><tr>
-          <th>Date & time</th><th>Phone</th><th>Plan</th><th>Amount</th><th>Payment ID</th><th>Status</th><th></th>
+          <th>Date</th><th>Phone</th><th>Plan</th><th>Amount</th><th>Payment ID</th><th>Status</th><th></th>
         </tr></thead><tbody>
-          ${payments.map(p => `<tr>
+          ${payments.map((p) => `<tr>
             <td>${fmtDT(p.createdAt)}</td>
-            <td>${p.phone}</td>
-            <td>${p.planType}</td>
+            <td>${esc(p.phone)}</td>
+            <td>${esc(p.planType)}</td>
             <td>${p.amountInr != null ? '₹' + p.amountInr : money(p.amount)}</td>
-            <td class="mono">${p.paymentId}</td>
-            <td><span class="pill ok">${p.status}</span></td>
+            <td class="mono">${esc(p.paymentId)}</td>
+            <td><span class="pill ok">${esc(p.status)}</span></td>
             <td>${openBtn(p.phone)}</td>
           </tr>`).join('')}
         </tbody></table>`;
-        bindOpenButtons(el);
-      } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
+        bindRowActions(el);
+      } catch (e) { el.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
     }
 
     async function runSearch() {
@@ -299,31 +492,104 @@
       const list = document.getElementById('userList');
       list.innerHTML = '<p class="muted">Loading…</p>';
       try {
-        const data = await api('/users?q=' + encodeURIComponent(q));
+        const data = await api('/users?q=' + encodeURIComponent(q) + '&limit=50');
         if (!data.users.length) { list.innerHTML = '<p class="muted">No users found</p>'; return; }
         list.innerHTML = `<table><thead><tr>
-          <th>Phone</th><th>Plan</th><th>Expiry</th><th>Account</th><th>Max devices</th><th></th>
+          <th>Phone</th><th>Plan</th><th>Expiry</th><th>Account</th><th>Max devices</th><th>Actions</th>
         </tr></thead><tbody>
-          ${data.users.map(u => {
+          ${data.users.map((u) => {
             const active = u.subscriptionEnd && new Date(u.subscriptionEnd) > new Date() && u.status !== 'blocked';
             return `<tr>
-              <td>${u.phone}</td>
-              <td>${u.planType || '—'} ${active ? '<span class="pill ok">ACTIVE</span>' : '<span class="pill bad">OFF</span>'}</td>
+              <td>${esc(u.phone)}</td>
+              <td>${esc(u.planType || '—')} ${active ? '<span class="pill ok">ACTIVE</span>' : '<span class="pill bad">OFF</span>'}</td>
               <td>${fmtDT(u.subscriptionEnd)}</td>
               <td>${u.status === 'blocked' ? '<span class="pill bad">BLOCKED</span>' : 'OK'}</td>
               <td>${u.maxDevices}</td>
-              <td>${openBtn(u.phone)}</td>
+              <td>${quickActions(u.phone, { block: u.status !== 'blocked' })}</td>
             </tr>`;
           }).join('')}
         </tbody></table>`;
-        bindOpenButtons(list);
+        bindRowActions(list);
       } catch (e) {
-        list.innerHTML = `<p class="error">${e.message}</p>`;
-        if (/Admin auth/i.test(e.message)) showLogin();
+        list.innerHTML = `<p class="error">${esc(e.message)}</p>`;
       }
     }
 
+    async function loadSocials() {
+      const form = document.getElementById('socialsForm');
+      const msg = document.getElementById('socialsMsg');
+      msg.textContent = '';
+      form.innerHTML = '<p class="muted">Loading…</p>';
+      try {
+        const { links } = await api('/socials');
+        form.innerHTML = (links || []).map((l) => `
+          <div class="card" style="margin:0 0 10px; padding:12px; background:#f8fafc" data-social-key="${esc(l.key)}">
+            <div class="row">
+              <div style="flex:0.6"><label>Key</label><input value="${esc(l.key)}" disabled /></div>
+              <div><label>Label</label><input data-field="label" value="${esc(l.label || '')}" /></div>
+              <div style="flex:0.4"><label>Sort</label><input data-field="sortOrder" type="number" value="${l.sortOrder ?? 0}" /></div>
+            </div>
+            <div style="margin-top:10px"><label>URL</label>
+              <input data-field="url" value="${esc(l.url || '')}" placeholder="https://…" />
+            </div>
+            <label style="margin-top:10px; display:flex; align-items:center; gap:8px; font-size:13px">
+              <input data-field="enabled" type="checkbox" ${l.enabled ? 'checked' : ''} style="width:auto" />
+              Enabled (show in app)
+            </label>
+          </div>
+        `).join('') || '<p class="muted">No social rows — run <code>npm run migrate</code>.</p>';
+      } catch (e) {
+        form.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+      }
+    }
+
+    document.getElementById('saveSocialsBtn').onclick = async () => {
+      const msg = document.getElementById('socialsMsg');
+      msg.textContent = 'Saving…';
+      try {
+        const links = [...document.querySelectorAll('#socialsForm [data-social-key]')].map((card) => ({
+          key: card.dataset.socialKey,
+          label: card.querySelector('[data-field="label"]').value.trim(),
+          url: card.querySelector('[data-field="url"]').value.trim(),
+          sortOrder: Number(card.querySelector('[data-field="sortOrder"]').value) || 0,
+          enabled: card.querySelector('[data-field="enabled"]').checked,
+        }));
+        await api('/socials', { method: 'PUT', body: JSON.stringify({ links }) });
+        msg.className = 'ok-msg';
+        msg.textContent = 'Saved. App picks this up on next Home open.';
+        toast('Social links saved');
+        loadSocials();
+      } catch (e) {
+        msg.className = 'error';
+        msg.textContent = e.message;
+        toast(e.message, true);
+      }
+    };
+
+    async function loadAudit() {
+      const el = document.getElementById('auditTable');
+      el.innerHTML = '<p class="muted">Loading…</p>';
+      try {
+        const limit = document.getElementById('auditLimit').value;
+        const { logs } = await api('/audit?limit=' + limit);
+        if (!logs.length) { el.innerHTML = '<p class="muted">No audit entries yet</p>'; return; }
+        el.innerHTML = `<table><thead><tr>
+          <th>When</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th>
+        </tr></thead><tbody>
+          ${logs.map((l) => `<tr>
+            <td>${fmtDT(l.createdAt)}</td>
+            <td>${esc(l.adminEmail || '—')}</td>
+            <td><b>${esc(l.action)}</b></td>
+            <td>${l.targetPhone ? openBtn(l.targetPhone) : '—'}</td>
+            <td class="mono">${esc(typeof l.details === 'string' ? l.details : JSON.stringify(l.details || {}))}</td>
+          </tr>`).join('')}
+        </tbody></table>`;
+        bindRowActions(el);
+      } catch (e) { el.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+    }
+
     async function openUser(phone) {
+      currentPhone = phone;
       const detail = document.getElementById('detail');
       detail.classList.remove('hidden');
       detail.innerHTML = '<p class="muted">Loading…</p>';
@@ -333,58 +599,50 @@
         const u = data.user;
         const active = data.active;
         detail.innerHTML = `
-          <h2 style="margin-top:0">${u.phone}
-            ${active ? '<span class="pill ok">SUB ACTIVE</span>' : '<span class="pill bad">SUB INACTIVE</span>'}
-            ${u.status === 'blocked' ? '<span class="pill bad">BLOCKED</span>' : '<span class="pill ok">ACCOUNT OK</span>'}
-          </h2>
+          <div class="toolbar">
+            <h2 style="margin:0;flex:1">${esc(u.phone)}
+              ${active ? '<span class="pill ok">SUB ACTIVE</span>' : '<span class="pill bad">SUB INACTIVE</span>'}
+              ${u.status === 'blocked' ? '<span class="pill bad">BLOCKED</span>' : '<span class="pill ok">ACCOUNT OK</span>'}
+            </h2>
+            <button class="ghost" id="closeDetail">Close</button>
+            <button class="ghost" id="reloadUser">Reload</button>
+          </div>
           <p class="muted">Created: ${fmtDT(u.createdAt)} · Updated: ${fmtDT(u.updatedAt)}</p>
-          <p>Referral: <b>${u.referralCode}</b> · Referred by: ${u.referredByPhone || '—'} · Paid referrals: ${u.paidReferrals}</p>
-          <p>Plan: <b>${u.planType || '—'}</b><br>
-             Start: <b>${fmtDT(u.subscriptionStart)}</b><br>
-             Expiry: <b>${fmtDT(u.subscriptionEnd)}</b></p>
+          <p>Referral: <b>${esc(u.referralCode)}</b> · Referred by: ${esc(u.referredByPhone || '—')} · Paid referrals: ${u.paidReferrals ?? 0}</p>
 
-          <h3>Account controls</h3>
+          <h3>Account</h3>
           <div class="actions">
             ${u.status === 'blocked'
               ? '<button class="ok" id="unblockBtn">Unblock user</button>'
               : '<button class="danger" id="blockBtn">Block user</button>'}
+            <button class="danger" id="revokeBtn">Revoke subscription</button>
           </div>
 
-          <h3>Multi-device access</h3>
-          <p class="muted">Default is 1 device. Raise this when the user requests another phone.</p>
+          <h3>Subscription dates (PATCH)</h3>
           <div class="row">
             <div>
-              <label>Max devices allowed</label>
-              <select id="maxDevicesSelect">
-                <option value="1" ${u.maxDevices === 1 ? 'selected' : ''}>1 device (default)</option>
-                <option value="2" ${u.maxDevices === 2 ? 'selected' : ''}>2 devices</option>
-                <option value="3" ${u.maxDevices === 3 ? 'selected' : ''}>3 devices</option>
+              <label>Plan type</label>
+              <select id="planTypeSelect">
+                <option value="">—</option>
+                <option value="monthly" ${u.planType === 'monthly' ? 'selected' : ''}>monthly</option>
+                <option value="quarterly" ${u.planType === 'quarterly' ? 'selected' : ''}>quarterly</option>
               </select>
             </div>
-            <div style="flex:0">
-              <label>&nbsp;</label>
-              <button id="saveMaxDevices">Save device limit</button>
+            <div>
+              <label>Subscription start</label>
+              <input id="subStart" type="datetime-local" value="${toLocalInputValue(u.subscriptionStart)}" />
             </div>
+            <div>
+              <label>Subscription end</label>
+              <input id="subEnd" type="datetime-local" value="${toLocalInputValue(u.subscriptionEnd)}" />
+            </div>
+            <div style="flex:0"><label>&nbsp;</label><button id="saveDatesBtn">Save dates</button></div>
           </div>
 
-          <h3>Bound devices (${data.devices.length} / ${u.maxDevices})</h3>
-          ${data.devices.length ? `<table><thead><tr><th>Device ID</th><th>Label</th><th>Bound at</th><th>Last seen</th><th></th></tr></thead><tbody>
-            ${data.devices.map(d => `<tr>
-              <td class="mono">${d.deviceId}</td>
-              <td>${d.deviceLabel || '—'}</td>
-              <td>${fmtDT(d.boundAt)}</td>
-              <td>${fmtDT(d.lastSeenAt)}</td>
-              <td><button class="danger" data-del="${d.deviceId}">Remove</button></td>
-            </tr>`).join('')}
-          </tbody></table>` : '<p class="muted">No devices bound</p>'}
-          <div class="actions">
-            <button class="secondary" id="resetDevices">Reset all devices (phone change)</button>
-          </div>
-
-          <h3>Grant subscription</h3>
+          <h3>Grant / extend</h3>
           <div class="row">
             <div>
-              <label>Grant plan</label>
+              <label>Grant plan (extends from current end if active)</label>
               <select id="grantPlan"><option value="monthly">1 Month</option><option value="quarterly">3 Months</option></select>
             </div>
             <div style="flex:0"><label>&nbsp;</label><button id="grantPlanBtn">Grant plan</button></div>
@@ -395,54 +653,106 @@
             <div style="flex:0"><label>&nbsp;</label><button class="secondary" id="grantDaysBtn">Add days</button></div>
           </div>
 
+          <h3>Multi-device access</h3>
+          <div class="row">
+            <div>
+              <label>Max devices (1–5)</label>
+              <select id="maxDevicesSelect">
+                <option value="1" ${u.maxDevices === 1 ? 'selected' : ''}>1 device</option>
+                <option value="2" ${u.maxDevices === 2 ? 'selected' : ''}>2 devices</option>
+                <option value="3" ${u.maxDevices === 3 ? 'selected' : ''}>3 devices</option>
+                <option value="4" ${u.maxDevices === 4 ? 'selected' : ''}>4 devices</option>
+                <option value="5" ${u.maxDevices === 5 ? 'selected' : ''}>5 devices</option>
+              </select>
+            </div>
+            <div style="flex:0"><label>&nbsp;</label><button id="saveMaxDevices">Save device limit</button></div>
+          </div>
+
+          <h3>Bound devices (${data.devices.length} / ${u.maxDevices})</h3>
+          ${data.devices.length ? `<table><thead><tr><th>Device ID</th><th>Label</th><th>Bound</th><th>Last seen</th><th></th></tr></thead><tbody>
+            ${data.devices.map((d) => `<tr>
+              <td class="mono">${esc(d.deviceId)}</td>
+              <td>${esc(d.deviceLabel || '—')}</td>
+              <td>${fmtDT(d.boundAt)}</td>
+              <td>${fmtDT(d.lastSeenAt)}</td>
+              <td><button class="danger" data-del="${esc(d.deviceId)}">Remove</button></td>
+            </tr>`).join('')}
+          </tbody></table>` : '<p class="muted">No devices bound</p>'}
+          <div class="actions">
+            <button class="secondary" id="resetDevices">Reset all devices</button>
+          </div>
+
           <h3>Payment history</h3>
-          ${data.payments.length ? `<table><thead><tr><th>Date & time</th><th>Plan</th><th>Amount</th><th>Payment ID</th><th>Status</th></tr></thead><tbody>
-            ${data.payments.map(p => `<tr>
+          ${data.payments.length ? `<table><thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Payment ID</th><th>Status</th></tr></thead><tbody>
+            ${data.payments.map((p) => `<tr>
               <td>${fmtDT(p.createdAt)}</td>
-              <td>${p.planType}</td>
+              <td>${esc(p.planType)}</td>
               <td>${p.amount != null ? money(p.amount) : '—'}</td>
-              <td class="mono">${p.paymentId}</td>
-              <td><span class="pill ok">${p.status}</span></td>
+              <td class="mono">${esc(p.paymentId)}</td>
+              <td><span class="pill ok">${esc(p.status)}</span></td>
             </tr>`).join('')}
           </tbody></table>` : '<p class="muted">No payments for this user</p>'}
         `;
 
-        const patch = async (body) => {
+        const patch = async (body, okMsg) => {
           await api(`/users/${phone}`, { method: 'PATCH', body: JSON.stringify(body) });
+          toast(okMsg || 'Saved');
           openUser(phone);
+          refreshCurrentLists();
         };
 
-        detail.querySelectorAll('[data-del]').forEach(btn => {
+        detail.querySelector('#closeDetail').onclick = () => {
+          detail.classList.add('hidden');
+          currentPhone = null;
+        };
+        detail.querySelector('#reloadUser').onclick = () => openUser(phone);
+        detail.querySelectorAll('[data-del]').forEach((btn) => {
           btn.onclick = async () => {
             if (!confirm('Remove this device?')) return;
             await api(`/users/${phone}/devices/${encodeURIComponent(btn.dataset.del)}`, { method: 'DELETE' });
+            toast('Device removed');
             openUser(phone);
           };
         });
         detail.querySelector('#resetDevices').onclick = async () => {
-          if (!confirm('Unbind ALL devices so the user can log in on a new phone?')) return;
+          if (!confirm('Unbind ALL devices for this phone?')) return;
           await api(`/users/${phone}/devices/reset`, { method: 'POST', body: '{}' });
+          toast('All devices reset');
           openUser(phone);
         };
         detail.querySelector('#saveMaxDevices').onclick = async () => {
-          const maxDevices = Number(detail.querySelector('#maxDevicesSelect').value);
-          await patch({ maxDevices });
+          await patch({ maxDevices: Number(detail.querySelector('#maxDevicesSelect').value) }, 'Device limit saved');
         };
         detail.querySelector('#grantPlanBtn').onclick = async () => {
-          await patch({ grantPlan: detail.querySelector('#grantPlan').value });
+          await patch({ grantPlan: detail.querySelector('#grantPlan').value }, 'Plan granted');
         };
         detail.querySelector('#grantDaysBtn').onclick = async () => {
-          await patch({ grantDays: Number(detail.querySelector('#grantDays').value) });
+          await patch({ grantDays: Number(detail.querySelector('#grantDays').value) }, 'Days added');
+        };
+        detail.querySelector('#saveDatesBtn').onclick = async () => {
+          const body = {};
+          const plan = detail.querySelector('#planTypeSelect').value;
+          const start = detail.querySelector('#subStart').value;
+          const end = detail.querySelector('#subEnd').value;
+          if (plan) body.planType = plan;
+          if (start) body.subscriptionStart = new Date(start).toISOString();
+          if (end) body.subscriptionEnd = new Date(end).toISOString();
+          if (!Object.keys(body).length) return toast('Nothing to save', true);
+          await patch(body, 'Subscription dates saved');
+        };
+        detail.querySelector('#revokeBtn').onclick = async () => {
+          if (!confirm('Revoke subscription now?')) return;
+          await patch({ revokeSubscription: true }, 'Subscription revoked');
         };
         const blockBtn = detail.querySelector('#blockBtn');
         const unblockBtn = detail.querySelector('#unblockBtn');
         if (blockBtn) blockBtn.onclick = async () => {
           if (!confirm('Block this user? Auto-accept will stop.')) return;
-          await patch({ status: 'blocked' });
+          await patch({ status: 'blocked' }, 'User blocked');
         };
-        if (unblockBtn) unblockBtn.onclick = async () => patch({ status: 'active' });
+        if (unblockBtn) unblockBtn.onclick = async () => patch({ status: 'active' }, 'User unblocked');
       } catch (e) {
-        detail.innerHTML = `<p class="error">${e.message}</p>`;
+        detail.innerHTML = `<p class="error">${esc(e.message)}</p>`;
       }
     }
 
@@ -451,7 +761,7 @@
       try {
         const me = await api('/me');
         showApp(me.admin);
-        loadOverview();
+        switchTab('overview');
       } catch { showLogin(); }
     })();
   </script>

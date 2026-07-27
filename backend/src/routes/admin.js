@@ -7,8 +7,9 @@ const router = express.Router();
 const { loginAdmin, requireAdmin } = require('../middleware/adminAuth');
 const { searchUsers, getUserByPhone, adminUpdateUser, ensureUser } = require('../models/user');
 const { listDevicesForUser, removeDevice, resetDevices } = require('../models/device');
-const { logAdminAction, listPaymentsForUser, getDashboardStats, listPaidCustomers, listActiveSubscriptions, listAllPayments } = require('../models/admin');
+const { logAdminAction, listPaymentsForUser, getDashboardStats, listPaidCustomers, listActiveSubscriptions, listAllPayments, listAuditLogs } = require('../models/admin');
 const { computeSubscriptionEnd } = require('../models/user');
+const { listSocialLinks, upsertSocialLinks } = require('../models/socials');
 
 router.post('/login', async (req, res) => {
   try {
@@ -76,6 +77,21 @@ router.get('/users', async (req, res) => {
   }
 });
 
+/** Create / ensure a user by phone (so admin can grant before first login). */
+router.post('/users', async (req, res) => {
+  try {
+    const phone = String(req.body?.phone || '').replace(/\D/g, '');
+    if (!/^\d{10}$/.test(phone)) {
+      return res.status(400).json({ message: 'Valid 10-digit phone required' });
+    }
+    const user = await ensureUser(phone);
+    await logAdminAction(req.admin.id, 'user.create', phone, {});
+    res.json({ user });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.get('/users/:phone', async (req, res) => {
   try {
     const user = await getUserByPhone(req.params.phone);
@@ -99,8 +115,8 @@ router.patch('/users/:phone', async (req, res) => {
     const patch = {};
     if (req.body.maxDevices !== undefined) {
       const n = Number(req.body.maxDevices);
-      if (![1, 2, 3].includes(n)) {
-        return res.status(400).json({ message: 'maxDevices must be 1, 2, or 3' });
+      if (![1, 2, 3, 4, 5].includes(n)) {
+        return res.status(400).json({ message: 'maxDevices must be 1–5' });
       }
       patch.maxDevices = n;
     }
@@ -145,6 +161,11 @@ router.patch('/users/:phone', async (req, res) => {
       patch.subscriptionEnd = computeSubscriptionEnd(planId, base);
     }
 
+    // Revoke plan immediately
+    if (req.body.revokeSubscription === true) {
+      patch.subscriptionEnd = new Date(Date.now() - 60_000).toISOString();
+    }
+
     const updated = await adminUpdateUser(req.params.phone, patch);
     await logAdminAction(req.admin.id, 'user.patch', req.params.phone, patch);
     res.json({ user: updated });
@@ -172,6 +193,45 @@ router.post('/users/:phone/devices/reset', async (req, res) => {
     const removed = await resetDevices(req.params.phone);
     await logAdminAction(req.admin.id, 'device.reset', req.params.phone, { removed });
     res.json({ success: true, removed });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/** GET /admin/api/socials — all links including disabled */
+router.get('/socials', async (_req, res) => {
+  try {
+    const links = await listSocialLinks({ enabledOnly: false });
+    res.json({ links });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/**
+ * PUT /admin/api/socials
+ * Body: { whatsapp: 'https://...', instagram: '...' }
+ *    or { links: [{ key, url, label?, enabled?, sortOrder? }] }
+ */
+router.put('/socials', async (req, res) => {
+  try {
+    const updated = await upsertSocialLinks(req.body || {});
+    await logAdminAction(req.admin.id, 'socials.update', null, {
+      keys: updated.map((l) => l.key),
+    });
+    const links = await listSocialLinks({ enabledOnly: false });
+    res.json({ success: true, updated, links });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ message: err.message });
+  }
+});
+
+/** Recent admin actions */
+router.get('/audit', async (req, res) => {
+  try {
+    const logs = await listAuditLogs(Number(req.query.limit) || 100);
+    res.json({ logs });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

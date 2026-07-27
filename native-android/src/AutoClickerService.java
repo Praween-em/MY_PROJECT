@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Parcelable;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
@@ -989,7 +990,6 @@ public class AutoClickerService extends AccessibilityService {
     if (prev == next) return;
     racePhase = next;
     Log.i(TAG, "PHASE " + prev + "→" + next + " (" + reason + ")");
-    // After COOLDOWN, resume FG Accept poll so map/nav offers aren't missed
     if (prev == RacePhase.COOLDOWN && next == RacePhase.IDLE && rapidoForeground) {
       scheduleAcceptHuntPoll();
     }
@@ -1108,29 +1108,33 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   /**
-   * Accept-text hunt while Captain is FG (home OR nav/map), or while race-armed.
-   * On-trip chrome does not stop polling — along-route Accept still appears on map.
-   * COOLDOWN blocks via isRapidoInteractionBlocked.
+   * Hunt while Captain is FG (live Accept can paint with no/weak notif) OR while
+   * a ride alert has armed the race. Idle non-Captain screens never hunt.
    */
   private boolean shouldRunAcceptHuntPoll() {
     if (!AutoClickerConfig.isEnabled()) return false;
     if (isRapidoInteractionBlocked()) return false;
     if (racePhase == RacePhase.COOLDOWN) return false;
-    // Playnix settings UI: pause only when not mid-race
-    if (isPlaynixForeground()
-        && !isRaceArmed()
-        && racePhase != RacePhase.ARMED
-        && racePhase != RacePhase.VERIFYING
-        && racePhase != RacePhase.STRIKING) {
-      return false;
-    }
-    // Bubble-only idle only when NOT in an active race / Captain FG
-    if (!rapidoForeground && shouldIdleForBubbleOnly()) return false;
-    return rapidoForeground
-        || isRaceArmed()
+    if (isPlaynixForeground() && !isRaceActive()) return false;
+    if (!rapidoForeground && !isRaceActive() && shouldIdleForBubbleOnly()) return false;
+    return rapidoForeground || isRaceActive();
+  }
+
+  /** True while racing a ride alert / mid-strike / verify. */
+  private boolean isRaceActive() {
+    return isRaceArmed()
+        || verifyingAccept
         || racePhase == RacePhase.ARMED
-        || racePhase == RacePhase.VERIFYING
-        || racePhase == RacePhase.STRIKING;
+        || racePhase == RacePhase.STRIKING
+        || racePhase == RacePhase.VERIFYING;
+  }
+
+  /**
+   * May start a new Accept find→click: armed race, OR Captain FG with a live
+   * offer card (home-screen rides often have no usable notification text).
+   */
+  private boolean mayHuntAccept() {
+    return isRaceActive() || rapidoForeground;
   }
 
   private void scheduleAcceptHuntPoll() {
@@ -1210,6 +1214,13 @@ public class AutoClickerService extends AccessibilityService {
     }
     if (isRapidoInteractionBlocked()) return false;
     if (pointInsideKnownBubble(x, y) || pointInsideRapidoBubbleWindow(x, y)) return false;
+
+    // Mid-race: allow Accept taps over call / lock / any cover UI
+    if (isRaceActive()) {
+      if (shouldIdleForBubbleOnly()) return false;
+      return true;
+    }
+
     if (shouldIdleForBubbleOnly()) return false;
 
     String active = null;
@@ -1223,7 +1234,7 @@ public class AutoClickerService extends AccessibilityService {
     if (activeRapido || (rapidoForeground && (active == null || activeRapido))) {
       return true;
     }
-    // ColorOS: active window often systemui/null while Captain Accept is visible
+    // Call / lock / shade / null active while Captain was sticky FG
     if (isTransientChromePackage(active) || active == null) {
       if (rapidoForeground || isRaceArmed() || verifyingAccept
           || racePhase == RacePhase.ARMED
@@ -1605,17 +1616,59 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   /**
-   * Shade / heads-up / OPPO chrome — not a real app switch. Treating these as
-   * "left Captain" was stopping Accept hunts mid-ride on ColorOS.
+   * System / cover UIs that sit over Captain but are NOT a real app switch.
+   * Call screen, lock/keyguard, shade, dialer — keep hunting when race-armed.
    */
   private static boolean isTransientChromePackage(String pkg) {
     if (pkg == null || pkg.isEmpty()) return true;
-    if ("com.android.systemui".equals(pkg)) return true;
-    if ("com.oplus.systemui".equals(pkg)) return true;
-    if ("com.oplus.stdsp".equals(pkg)) return true;
-    if (pkg.startsWith("com.android.systemui")) return true;
-    if (pkg.contains("systemui")) return true;
+    String p = pkg.toLowerCase(Locale.US);
+    if (p.contains("systemui")) return true;
+    if (p.contains("keyguard") || p.contains("lockscreen") || p.contains("lock.screen")) {
+      return true;
+    }
+    // In-call / dialer (AOSP, Google, Samsung, Oppo/Realme, Xiaomi, Vivo, …)
+    if (p.contains("incallui") || p.contains("incall") || p.contains("in_call")) return true;
+    if (p.contains("dialer") || p.contains("telecom")) return true;
+    if (p.equals("com.android.phone") || p.startsWith("com.android.phone")) return true;
+    if (p.contains("com.samsung.android.incallui")) return true;
+    if (p.contains("com.google.android.dialer")) return true;
+    if (p.contains("com.android.server.telecom")) return true;
+    if ((p.contains("oplus") || p.contains("coloros") || p.contains("heytap")
+        || p.contains("realme") || p.contains("oneplus"))
+        && (p.contains("call") || p.contains("phone") || p.contains("dial"))) {
+      return true;
+    }
+    if ((p.contains("miui") || p.contains("xiaomi") || p.contains("com.android.contacts"))
+        && (p.contains("call") || p.contains("incall"))) {
+      return true;
+    }
+    if (p.contains("permissioncontroller") || p.contains("packageinstaller")) return true;
+    if (p.contains("screenshot") || p.contains("globalactions")) return true;
+    if (p.contains("com.oplus.stdsp")) return true;
     return false;
+  }
+
+  /** Wake display briefly so lock/doze devices can show/tap Accept overlays. */
+  private void wakeScreenForRace() {
+    try {
+      PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+      if (pm == null) return;
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH && pm.isInteractive()) {
+        return;
+      }
+      @SuppressWarnings("deprecation")
+      PowerManager.WakeLock wl = pm.newWakeLock(
+          PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+          "superridex:race");
+      wl.acquire(2500L);
+      handler.postDelayed(() -> {
+        try {
+          if (wl.isHeld()) wl.release();
+        } catch (Exception ignored) {
+        }
+      }, 2600L);
+    } catch (Exception ignored) {
+    }
   }
 
   /**
@@ -1807,6 +1860,8 @@ public class AutoClickerService extends AccessibilityService {
     if (!AutoClickerConfig.isEnabled()) return;
     if (packageName == null || !AutoClickerConfig.isPackageMonitored(packageName)) return;
     if (isSpamText(notifText)) return;
+    // Hard gate: only real ride alerts arm the race (no status / earnings taps)
+    if (!isRideAlert(notifText, notification)) return;
 
     // Hard latch: ignore all Rapido interactions after Accept / on-trip
     if (svc != null && svc.isRapidoInteractionBlocked()) return;
@@ -1840,6 +1895,8 @@ public class AutoClickerService extends AccessibilityService {
     Runnable race = () -> {
       if (SystemClock.uptimeMillis() < svc.ignoreRapidoUntilMs) return;
       svc.acceptSuccessLatch = false;
+      // Call / lock / doze: wake + keep hunting Accept overlays over cover UIs
+      svc.wakeScreenForRace();
       svc.arm(source + (actionOk ? "/action" : ""));
       if (actionOk) {
         // Do NOT emit history here — wait for VERIFY so UI/notif fare can be captured.
@@ -2002,9 +2059,11 @@ public class AutoClickerService extends AccessibilityService {
       if (!AutoClickerConfig.isPackageMonitored(pkg)) return;
       String text = notifText(event);
       if (isSpamText(text)) return;
-      lastPkg = pkg;
       Parcelable data = event.getParcelableData();
       Notification n = data instanceof Notification ? (Notification) data : null;
+      // Same gate as NLS — ignore status / earnings / non-ride Captain pings
+      if (!isRideAlert(text, n)) return;
+      lastPkg = pkg;
       onRideSignal(pkg, n, text, t0, "A11yNotif");
       return;
     }
@@ -2023,19 +2082,20 @@ public class AutoClickerService extends AccessibilityService {
     boolean windowsChanged = type == AccessibilityEvent.TYPE_WINDOWS_CHANGED
         || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
 
-    // EARLIEST Accept race: findByText FIRST — before heartbeat / overlay / FG schedule / dump
+    // Accept race on Captain FG (home/map) OR while NLS-armed
     if ((isRapido || rapidoContext)
         && (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
             || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-            || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED)
-        && canStartRapidoBurst()) {
+            || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED)) {
       if (isRapido) lastPkg = pkg;
-      // Only claim FG when Captain is the active window (not overlay-over-WhatsApp)
       syncRapidoForegroundFromActive("hot-path");
-      // Non-Rapido FG + only float icon → idle (never click/hunt bubble)
       if (shouldIdleForBubbleOnly()) {
         return;
       }
+      if (!mayHuntAccept() || !canStartRapidoBurst()) {
+        if (rapidoForeground) scheduleAcceptHuntPoll();
+        // Fall through for FG bookkeeping / Ola
+      } else {
       AccessibilityNodeInfo source = null;
       try {
         source = event.getSource();
@@ -2100,6 +2160,7 @@ public class AutoClickerService extends AccessibilityService {
       if (rapidoForeground) {
         scheduleAcceptHuntPoll();
       }
+      } // end mayHuntAccept
       // Fall through to routePackage below for Ola / standard dump path
     }
 
@@ -2189,6 +2250,7 @@ public class AutoClickerService extends AccessibilityService {
 
   /** Find Accept by text (active root first, then all Rapido windows) → smartClick. */
   private boolean huntAccept(String hintPkg, long t0, String source) {
+    if (!mayHuntAccept()) return false;
     if (!AutoClickerConfig.isEnabled()) return false;
     if (isRapidoInteractionBlocked()) {
       logBlocked("hunt/" + source, "cooldown");
@@ -2866,6 +2928,8 @@ public class AutoClickerService extends AccessibilityService {
   // ─── Rapido (micro-burst race) ────────────────────────────────────────────
 
   private void handleRapido(AccessibilityNodeInfo root, long t0, String pkg) {
+    // Captain FG (home) or NLS-armed — never on idle non-Captain screens
+    if (!mayHuntAccept()) return;
     if (!canStartRapidoBurst()) return;
     if (isRapidoInteractionBlocked()) return;
     if (shouldIdleForBubbleOnly()) return;
@@ -3021,6 +3085,10 @@ public class AutoClickerService extends AccessibilityService {
     // Clock starts the moment Accept is handed to us (found) — before fare/climb/click
     final long findAt = SystemClock.uptimeMillis();
     if (node == null) return false;
+    if (!mayHuntAccept()) {
+      try { node.recycle(); } catch (Exception ignored) {}
+      return false;
+    }
     if (isRapidoInteractionBlocked() || !canStartRapidoBurst()) {
       try { node.recycle(); } catch (Exception ignored) {}
       return false;
@@ -3043,6 +3111,15 @@ public class AutoClickerService extends AccessibilityService {
       Log.i(TAG, "SKIP_MISSED_ORDER " + tag);
       try { node.recycle(); } catch (Exception ignored) {}
       return false;
+    }
+    // Home-screen path (not yet NLS-armed): only tap live offer cards, not chrome
+    if (!isRaceActive() && !acceptLooksLikeLiveOffer(node)) {
+      try { node.recycle(); } catch (Exception ignored) {}
+      return false;
+    }
+    // Sighted live Accept on Home → arm so cache/follow-ups stay legal
+    if (!isRaceActive()) {
+      arm("ui-sighted/" + tag);
     }
 
     // Always capture fare for history (even when minPrice is 0)
@@ -3567,9 +3644,10 @@ public class AutoClickerService extends AccessibilityService {
 
   static boolean isSpamText(String hay) {
     if (hay == null || hay.isEmpty()) return false;
-    // Never spam-filter if it looks like a ride offer
-    if (hay.contains("accept") || hay.contains("₹") || hay.contains(" km")
-        || hay.contains("pickup") || hay.contains("new order") || hay.contains("new ride")) {
+    // Never spam-filter clear ride-offer signals
+    if (hay.contains("accept") || hay.contains("स्वीकार") || hay.contains("₹")
+        || hay.contains("new order") || hay.contains("new ride") || hay.contains("ride request")
+        || hay.contains("pickup")) {
       return false;
     }
     return hay.contains("completed order") || hay.contains("total earning")
@@ -3577,7 +3655,77 @@ public class AutoClickerService extends AccessibilityService {
         || hay.contains("password") || hay.contains("wallet") || hay.contains("cashout")
         || hay.contains("payout") || hay.contains("rating") || hay.contains("rate your")
         || hay.contains("update available") || hay.contains("battery")
-        || hay.contains("document") || hay.contains("training");
+        || hay.contains("document") || hay.contains("training")
+        || hay.contains("earning") || hay.contains("incentive") || hay.contains("bonus")
+        || hay.contains("challenge") || hay.contains("go online") || hay.contains("you're online")
+        || hay.contains("you are online") || hay.contains("offline") || hay.contains("duty")
+        || hay.contains("kyc") || hay.contains("tip received") || hay.contains("payment received")
+        || hay.contains("weekly") || hay.contains("leaderboard") || hay.contains("referral")
+        || hay.contains("promotion") || hay.contains("offer ends") || hay.contains("recharge");
+  }
+
+  /**
+   * True for ride-offer notifications — not earnings/status pings.
+   * Nuclear: empty/unknown text still arms (overlay often paints before notif text).
+   */
+  static boolean isRideAlert(String notifText, Notification notification) {
+    if (notification != null && findAcceptAction(notification) != null) {
+      return true;
+    }
+    return looksLikeRideOffer(notifText);
+  }
+
+  static boolean looksLikeRideOffer(String text) {
+    if (text == null || text.trim().isEmpty()) {
+      // Late overlay / empty heads-up — nuclear still races; standard waits for UI sighting
+      return AutoClickerConfig.isNuclearMode();
+    }
+    String h = text.toLowerCase(Locale.US).trim();
+    if (isSpamText(h)) return false;
+    if (h.contains("accept") || h.contains("स्वीकार")) return true;
+    if (h.contains("new order") || h.contains("new ride") || h.contains("ride request")) {
+      return true;
+    }
+    if (h.contains("incoming") || h.contains("order request") || h.contains("ride offer")) {
+      return true;
+    }
+    if (h.contains("pickup") || h.contains("pick up") || h.contains("drop")) return true;
+    if (h.contains("booking") && (h.contains("₹") || h.contains("km") || h.contains("rs"))) {
+      return true;
+    }
+    if ((h.contains("₹") || h.contains("rs.") || h.contains("rs ") || h.contains("inr"))
+        && h.matches(".*\\d.*")) {
+      return true;
+    }
+    if (h.contains("km") && h.matches(".*\\d.*")) return true;
+    // Do NOT arm on every Captain ping — Home UI sighting covers weak notifs
+    return false;
+  }
+
+  /**
+   * Live ride card near Accept (₹ / km / pickup) — used on Home when not NLS-armed.
+   * Missed-order UI is rejected separately.
+   */
+  private boolean acceptLooksLikeLiveOffer(AccessibilityNodeInfo accept) {
+    if (accept == null) return false;
+    try {
+      accept.getBoundsInScreen(scratchRect);
+      if (scratchRect.isEmpty() || isExtremeTopChromeAccept(scratchRect)) return false;
+      if (isBubbleLikeClickTarget(scratchRect)) return false;
+    } catch (Exception e) {
+      return false;
+    }
+    // Nuclear on Captain FG: a real mid-screen Accept is enough
+    if (AutoClickerConfig.isNuclearMode() && rapidoForeground) {
+      return true;
+    }
+    String near = collectPriceNearAccept(accept);
+    if (near == null) near = "";
+    String h = near.toLowerCase(Locale.US);
+    if (h.contains("₹") || h.contains("rs") || h.contains("inr")) return true;
+    if (h.contains("km") || h.contains("pickup") || h.contains("drop")) return true;
+    if (parseRapidoPrice(near) > 0) return true;
+    return false;
   }
 
   /** Store positive fare for the current race (notification / UI parse). */
