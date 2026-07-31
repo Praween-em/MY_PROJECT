@@ -1,4 +1,4 @@
-package com.playnix.app;
+package com.rapido.tap;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class AutoClickerConfig {
 
-  private static final String PREFS = "playnix_race";
+  private static final String PREFS = "superridex_race";
 
   /** Mode 0 = price filter; else = distance filter (MeClicker). */
   public static final int MODE_PRICE = 0;
@@ -242,11 +242,12 @@ public final class AutoClickerConfig {
 
   public static boolean isRapidoPackage(String packageName) {
     if (packageName == null) return false;
-    // Package names are lowercase by convention — avoid toLowerCase alloc on hot path
+    // SUPER RIDEX itself is com.rapido.tap — NEVER treat it as Captain
+    // (contains("rapido") used to match our app → continuous mid-screen taps)
+    if (packageName.equals("com.rapido.tap")) return false;
     return packageName.equals("com.rapido.rider")
         || packageName.equals("com.rapido.captain")
-        || packageName.equals("com.rapido.driver")
-        || packageName.contains("rapido");
+        || packageName.equals("com.rapido.driver");
   }
 
   public static boolean isOlaPackage(String packageName) {

@@ -1,4 +1,4 @@
-package com.playnix.app;
+package com.rapido.tap;
 
 import android.content.ComponentName;
 import android.content.Context;

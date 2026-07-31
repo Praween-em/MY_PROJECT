@@ -25,6 +25,38 @@ const RAZORPAY_KEY_ID =
   process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID ||
   'rzp_test_XXXXXXXXXXXXXXXX';
 
+/** Normalize Razorpay SDK response (Android/iOS field names differ slightly). */
+function extractPaymentFields(paymentData) {
+  if (!paymentData || typeof paymentData !== 'object') {
+    throw new Error('Empty payment response from Razorpay');
+  }
+  const razorpayOrderId =
+    paymentData.razorpay_order_id ||
+    paymentData.order_id ||
+    paymentData.metadata?.order_id;
+  const razorpayPaymentId =
+    paymentData.razorpay_payment_id ||
+    paymentData.payment_id;
+  const razorpaySignature =
+    paymentData.razorpay_signature ||
+    paymentData.signature;
+
+  if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    throw new Error(
+      'Payment succeeded but verification data was incomplete. ' +
+      'Contact support with your payment ID — your subscription can be activated manually.'
+    );
+  }
+  return { razorpayOrderId, razorpayPaymentId, razorpaySignature };
+}
+
+/** Strip +91 / spaces — must match backend normalizePhone. */
+function normalizePhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length >= 10) return digits.slice(-10);
+  return raw;
+}
+
 /**
  * planConfig maps plan IDs to display names and amounts (in paise).
  */
@@ -48,8 +80,13 @@ export async function openCheckout(planId, phone) {
   const plan = PLAN_CONFIG[planId];
   if (!plan) throw new Error(`Unknown plan: ${planId}`);
 
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone || String(normalizedPhone).replace(/\D/g, '').length < 10) {
+    throw new Error('Valid 10-digit phone required');
+  }
+
   // Step 1: create backend order
-  const { orderId, amount, currency } = await createOrder(planId, phone);
+  const { orderId, amount, currency } = await createOrder(planId, normalizedPhone);
 
   // Step 2: open Razorpay sheet
   const Razorpay = await getRazorpay();
@@ -60,18 +97,16 @@ export async function openCheckout(planId, phone) {
     currency: currency || 'INR',
     name: 'SUPER RIDEX',
     description: plan.description,
-    prefill: { contact: phone },
+    prefill: { contact: normalizedPhone },
     theme: { color: '#00FF7F' },
   });
 
-  // paymentData = { razorpay_order_id, razorpay_payment_id, razorpay_signature }
+  const fields = extractPaymentFields(paymentData);
 
   // Step 3: verify on backend
   const result = await verifyPayment({
-    razorpayOrderId: paymentData.razorpay_order_id,
-    razorpayPaymentId: paymentData.razorpay_payment_id,
-    razorpaySignature: paymentData.razorpay_signature,
-    phone,
+    ...fields,
+    phone: normalizedPhone,
     planId,
   });
 

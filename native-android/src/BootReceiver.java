@@ -1,4 +1,4 @@
-package com.playnix.app;
+package com.rapido.tap;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

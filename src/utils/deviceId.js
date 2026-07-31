@@ -8,7 +8,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const KEY = '@playnix/device_id';
+const KEY = '@superridex/device_id';
 
 let memoryId = null;
 let inflight = null;

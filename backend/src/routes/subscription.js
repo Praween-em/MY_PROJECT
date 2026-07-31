@@ -5,8 +5,9 @@
 const express = require('express');
 const router = express.Router();
 const { requirePhone, optionalDevice, requireDevice } = require('../middleware/auth');
-const { createOrder, verifySignature, getOrderNotes, VALID_PLANS } = require('../services/razorpay');
-const { ensureUser, activateSubscription, getUserByPhone } = require('../models/user');
+const { createOrder, VALID_PLANS } = require('../services/razorpay');
+const { activateFromCheckout } = require('../services/paymentActivation');
+const { ensureUser, getUserByPhone } = require('../models/user');
 const { assertDeviceAllowed, checkEntitlement, DeviceLimitError } = require('../models/device');
 const { isSubscriptionActive } = require('../models/mapUser');
 
@@ -42,37 +43,27 @@ router.post('/verify-payment', requirePhone, async (req, res) => {
   try {
     const { razorpayOrderId, razorpayPaymentId, razorpaySignature, planId } = req.body;
 
-    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-      return res.status(400).json({ message: 'Missing payment fields' });
-    }
+    const { subscriptionEnd, referralResult, alreadyProcessed, phone, planId: resolvedPlan } =
+      await activateFromCheckout({
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature,
+        phone: req.phone,
+        planId,
+      });
 
-    verifySignature({ razorpayOrderId, razorpayPaymentId, razorpaySignature });
-
-    const notes = await getOrderNotes(razorpayOrderId);
-    if (notes.phone && notes.phone !== req.phone) {
-      return res.status(400).json({ message: 'Phone does not match order' });
-    }
-
-    const resolvedPlan = VALID_PLANS.includes(notes.planId)
-      ? notes.planId
-      : VALID_PLANS.includes(planId)
-        ? planId
-        : null;
-
-    if (!resolvedPlan) {
-      return res.status(400).json({ message: 'Invalid planId' });
-    }
-
-    const { subscriptionEnd, referralResult, alreadyProcessed } = await activateSubscription(
-      req.phone,
-      { planId: resolvedPlan, razorpayOrderId, razorpayPaymentId }
+    console.log(
+      `[payment] verify-payment ${alreadyProcessed ? 'idempotent' : 'activated'} ` +
+      `phone=${phone} plan=${resolvedPlan} payment=${razorpayPaymentId}`
     );
 
     res.json({ success: true, subscriptionEnd, referralResult, alreadyProcessed });
   } catch (err) {
-    console.error('verify-payment error:', err);
-    const status = err.message === 'Invalid payment signature' ? 400 : 500;
-    res.status(status).json({ message: err.message });
+    console.error('verify-payment error:', err.message || err);
+    const status =
+      err.status ||
+      (err.code === 'INVALID_SIGNATURE' || err.message === 'Invalid payment signature' ? 400 : 500);
+    res.status(status).json({ message: err.message, code: err.code });
   }
 });
 
@@ -124,7 +115,6 @@ router.get('/status', requirePhone, optionalDevice, async (req, res) => {
 /** Explicit bind used at login/register when deviceId is known */
 router.post('/bind-device', requirePhone, requireDevice, async (req, res) => {
   try {
-    // Explicit bind (post-login) may rebind when at capacity — same as OTP.
     await assertDeviceAllowed(req.phone, req.deviceId, req.deviceLabel, {
       rebindIfFull: true,
     });

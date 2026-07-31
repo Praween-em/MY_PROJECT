@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const KEY = '@playnix/settings';
+const KEY = '@superridex/settings';
 
 const DEFAULTS = { delayMs: 0, nuclearMode: true };
 

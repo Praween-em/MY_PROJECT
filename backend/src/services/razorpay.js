@@ -3,7 +3,8 @@
  */
 
 const crypto = require('crypto');
-const razorpay = require('../config/razorpay');
+const { getRazorpay } = require('../config/razorpay');
+const { normalizePhone } = require('../utils/phone');
 
 const PLAN_AMOUNTS = {
   monthly: 29900,
@@ -20,7 +21,11 @@ function verifyPaymentSignature({ razorpayOrderId, razorpayPaymentId, razorpaySi
   const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
 
   if (expected !== razorpaySignature) {
-    throw new Error('Invalid payment signature');
+    const err = new Error(
+      'Invalid payment signature — check RAZORPAY_KEY_SECRET matches your live/test Key ID on Railway'
+    );
+    err.code = 'INVALID_SIGNATURE';
+    throw err;
   }
   return true;
 }
@@ -37,11 +42,14 @@ async function createOrder(planId, phone) {
   const amount = PLAN_AMOUNTS[planId];
   if (!amount) throw new Error('Invalid planId');
 
-  const order = await razorpay.orders.create({
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) throw new Error('Valid 10-digit phone required');
+
+  const order = await getRazorpay().orders.create({
     amount,
     currency: 'INR',
-    receipt: `pc_${phone}_${Date.now()}`,
-    notes: { phone, planId },
+    receipt: `sr_${normalizedPhone}_${Date.now()}`,
+    notes: { phone: normalizedPhone, planId },
   });
 
   return {
@@ -52,11 +60,15 @@ async function createOrder(planId, phone) {
 }
 
 async function getOrderNotes(orderId) {
-  const order = await razorpay.orders.fetch(orderId);
+  const order = await getRazorpay().orders.fetch(orderId);
   return {
-    phone: order.notes?.phone || null,
+    phone: order.notes?.phone ? normalizePhone(order.notes.phone) : null,
     planId: order.notes?.planId || null,
   };
+}
+
+async function fetchPayment(paymentId) {
+  return getRazorpay().payments.fetch(paymentId);
 }
 
 module.exports = {
@@ -66,4 +78,5 @@ module.exports = {
   verifySignature: verifyPaymentSignature,
   verifyWebhookSignature,
   getOrderNotes,
+  fetchPayment,
 };

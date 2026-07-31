@@ -139,6 +139,23 @@ export default function SettingsScreen({ navigation }) {
           />
         </View>
 
+        <SectionLabel>Legal</SectionLabel>
+        <View style={styles.group}>
+          <SettingRow
+            icon={<Ionicons name="document-text-outline" size={18} color={colors.purpleBright} />}
+            title="Privacy Policy"
+            sub="How we handle your data"
+            onPress={() => navigateRoot(navigation, 'PrivacyPolicy')}
+          />
+          <SettingRow
+            icon={<Ionicons name="shield-checkmark-outline" size={18} color={colors.purpleBright} />}
+            title="Terms & Conditions"
+            sub="Accessibility assistive use terms"
+            onPress={() => navigateRoot(navigation, 'Terms')}
+            separator={false}
+          />
+        </View>
+
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
           <Text style={styles.logoutText}>LOG OUT</Text>
         </TouchableOpacity>

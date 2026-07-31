@@ -5,21 +5,23 @@
  * deviceId from body / query / x-device-id.
  */
 
+const { normalizePhone } = require('../utils/phone');
+
 function requirePhone(req, res, next) {
-  let phone =
+  let raw =
     req.body?.phone ||
     req.query?.phone ||
     req.headers['x-phone'];
 
-  if (!phone) {
+  if (!raw) {
     const auth = req.headers.authorization || req.headers.Authorization;
     if (auth?.startsWith('Bearer ')) {
-      const token = auth.slice(7).trim();
-      if (/^\d{10}$/.test(token)) phone = token;
+      raw = auth.slice(7).trim();
     }
   }
 
-  if (!phone || !/^\d{10}$/.test(phone)) {
+  const phone = normalizePhone(raw);
+  if (!phone) {
     return res.status(401).json({ message: 'Valid 10-digit phone number required' });
   }
 

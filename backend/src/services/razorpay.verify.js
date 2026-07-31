@@ -50,7 +50,10 @@ try {
   });
   assert('invalid payment signature rejected', false);
 } catch (e) {
-  assert('invalid payment signature rejected', e.message === 'Invalid payment signature');
+  assert(
+    'invalid payment signature rejected',
+    e.code === 'INVALID_SIGNATURE' || /invalid payment signature/i.test(e.message)
+  );
 }
 
 const webhookBody = JSON.stringify({ event: 'payment.captured' });

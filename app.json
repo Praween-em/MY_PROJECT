@@ -17,7 +17,7 @@
         {
           "backgroundColor": "#000000",
           "image": "./assets/splash-blank.png",
-          "imageWidth": 1,
+          "imageWidth": 48,
           "resizeMode": "contain"
         }
       ],
@@ -25,11 +25,11 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.playnix.app",
+      "bundleIdentifier": "com.rapido.tap",
       "icon": "./assets/AppIcons/appstore.png"
     },
     "android": {
-      "package": "com.playnix.app",
+      "package": "com.rapido.tap",
       "icon": "./assets/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png",
       "adaptiveIcon": {
         "backgroundColor": "#000000",

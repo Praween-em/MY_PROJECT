@@ -154,6 +154,7 @@ export default function HistoryScreen() {
                 </View>
                 <Text style={styles.rideDetail}>
                   {ride.tag || 'Standard'}
+                  {ride.price != null ? ` · ₹${ride.price}` : ''}
                   {ride.label ? ` · ${ride.label}` : ''}
                 </Text>
                 <Text style={styles.rideWhen}>

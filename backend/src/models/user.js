@@ -4,6 +4,7 @@
 
 const { query, withTransaction } = require('../config/db');
 const { mapUser } = require('./mapUser');
+const { PLAN_AMOUNTS } = require('../services/razorpay');
 const {
   generateReferralCode,
   isQualifyingPlan,
@@ -203,11 +204,13 @@ async function activateSubscription(phone, {
       [now, subscriptionEnd, planId, razorpayOrderId, razorpayPaymentId, phone]
     );
 
+    const resolvedAmount = amount ?? PLAN_AMOUNTS[planId] ?? null;
+
     await client.query(
       `INSERT INTO payments (user_id, order_id, payment_id, plan_type, amount, status)
        VALUES ($1, $2, $3, $4, $5, 'captured')
        ON CONFLICT (payment_id) DO NOTHING`,
-      [user.id, razorpayOrderId, razorpayPaymentId, planId, amount]
+      [user.id, razorpayOrderId, razorpayPaymentId, planId, resolvedAmount]
     );
   });
 

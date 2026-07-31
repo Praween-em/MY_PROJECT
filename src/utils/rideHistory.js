@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { packageLabel } from '../services/autoclicker';
 
-const KEY = '@playnix/ride_history';
+const KEY = '@superridex/ride_history';
 const MAX = 200;
 
 function formatTime(ts) {
@@ -62,6 +62,10 @@ export async function addRideAccepted(event) {
     typeof event?.latencyMs === 'number' && event.latencyMs >= 0
       ? event.latencyMs
       : null;
+  const price =
+    typeof event?.price === 'number' && event.price > 0
+      ? event.price
+      : null;
 
   const ride = {
     id: `${ts}-${packageName || 'app'}-${Math.random().toString(36).slice(2, 7)}`,
@@ -69,6 +73,7 @@ export async function addRideAccepted(event) {
     packageName,
     tag: mode,
     ms: latencyMs,
+    price,
     label: event?.label || '',
     time: formatTime(ts),
     date: formatDate(ts),

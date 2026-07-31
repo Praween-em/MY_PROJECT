@@ -53,24 +53,38 @@ export default function PlansScreen({ navigation }) {
     setPaying(true);
     try {
       const result = await openCheckout(selected, user.phone);
+      if (!result?.subscriptionEnd && !result?.success) {
+        throw new Error('Payment verified but subscription was not activated. Contact support.');
+      }
       // Re-read from Railway so Home matches DB (not only local cache)
       let remote = null;
       try {
         remote = await getSubscriptionStatus(user.phone);
       } catch {
-        // payment already verified; local result is still valid
+        // verify already succeeded — use result below
+      }
+      const subscriptionEnd = remote?.subscriptionEnd || result.subscriptionEnd;
+      const isActive = remote?.active ?? (subscriptionEnd && new Date(subscriptionEnd) > new Date());
+      if (!isActive && !subscriptionEnd) {
+        throw new Error(
+          'Payment received but subscription not active yet. Pull to refresh or contact support.'
+        );
       }
       await saveUser({
         ...user,
-        active: remote?.active ?? true,
+        active: isActive,
         planType: remote?.planType || selected,
-        subscriptionEnd: remote?.subscriptionEnd || result.subscriptionEnd,
+        subscriptionEnd,
         subscriptionStart: remote?.subscriptionStart || new Date().toISOString(),
       });
       navigation.replace('PermissionsSetup');
     } catch (err) {
       if (isPaymentCancelled(err)) return;
-      Alert.alert('Payment Failed', err.message || 'Could not complete payment.');
+      const msg = err.message || 'Could not complete payment.';
+      Alert.alert(
+        'Payment Issue',
+        msg + (msg.includes('signature') ? '\n\nCheck Railway: RAZORPAY_KEY_SECRET must match your live Key ID.' : '')
+      );
     } finally {
       setPaying(false);
     }

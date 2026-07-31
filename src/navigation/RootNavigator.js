@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -8,10 +8,13 @@ import LoginScreen from '../screens/LoginScreen';
 import PlansScreen from '../screens/PlansScreen';
 import PermissionsSetupScreen from '../screens/PermissionsSetupScreen';
 import LoadingScreen from '../screens/LoadingScreen';
+import PrivacyPolicyScreen from '../screens/PrivacyPolicyScreen';
+import TermsScreen from '../screens/TermsScreen';
 import MainTabs from './MainTabs';
 import { getStoredUser } from '../utils/storage';
 
 const Stack = createNativeStackNavigator();
+const MIN_LOADING_MS = 2000;
 
 function resolveInitialRoute(user) {
   if (!user?.phone) return 'Login';
@@ -20,7 +23,9 @@ function resolveInitialRoute(user) {
 
 export default function RootNavigator() {
   const [initialRoute, setInitialRoute] = useState(null);
+  const [minTimeDone, setMinTimeDone] = useState(false);
   const [splashHidden, setSplashHidden] = useState(false);
+  const bootStartedAt = useRef(Date.now());
 
   useEffect(() => {
     let cancelled = false;
@@ -31,7 +36,7 @@ export default function RootNavigator() {
       .catch(() => {
         if (!cancelled) setInitialRoute('Login');
       });
-    // Never block launch on AsyncStorage / slow flash storage
+    // Never block forever on AsyncStorage / slow flash storage
     const fallback = setTimeout(() => {
       if (!cancelled) setInitialRoute((r) => r || 'Login');
     }, 800);
@@ -39,6 +44,14 @@ export default function RootNavigator() {
       cancelled = true;
       clearTimeout(fallback);
     };
+  }, []);
+
+  // Keep branded loading UI visible for at least 2 seconds
+  useEffect(() => {
+    const elapsed = Date.now() - bootStartedAt.current;
+    const remaining = Math.max(0, MIN_LOADING_MS - elapsed);
+    const t = setTimeout(() => setMinTimeDone(true), remaining);
+    return () => clearTimeout(t);
   }, []);
 
   const hideNativeSplash = useCallback(async () => {
@@ -52,15 +65,16 @@ export default function RootNavigator() {
     }
   }, [splashHidden]);
 
-  // Hide native splash ASAP — long SplashScreenManager loops starve a11y on ColorOS
+  // Hand off from native splash to our LoadingScreen quickly
   useEffect(() => {
     hideNativeSplash();
     const t = setTimeout(hideNativeSplash, 200);
     return () => clearTimeout(t);
   }, [hideNativeSplash]);
 
-  // Brief branded frame only until route is known (no 2.5s image gate)
-  if (!initialRoute) {
+  const showLoading = !initialRoute || !minTimeDone;
+
+  if (showLoading) {
     return (
       <SafeAreaProvider style={{ flex: 1, backgroundColor: '#000000' }}>
         <LoadingScreen onVisible={hideNativeSplash} onReady={hideNativeSplash} />
@@ -83,6 +97,8 @@ export default function RootNavigator() {
           <Stack.Screen name="Plans" component={PlansScreen} />
           <Stack.Screen name="PermissionsSetup" component={PermissionsSetupScreen} />
           <Stack.Screen name="Main" component={MainTabs} />
+          <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+          <Stack.Screen name="Terms" component={TermsScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

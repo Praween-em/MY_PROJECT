@@ -7,7 +7,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const KEYS = {
-  USER: '@playnix/user',
+  USER: '@superridex/user',
 };
 
 /**

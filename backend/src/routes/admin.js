@@ -8,6 +8,8 @@ const { loginAdmin, requireAdmin } = require('../middleware/adminAuth');
 const { searchUsers, getUserByPhone, adminUpdateUser, ensureUser } = require('../models/user');
 const { listDevicesForUser, removeDevice, resetDevices } = require('../models/device');
 const { logAdminAction, listPaymentsForUser, getDashboardStats, listPaidCustomers, listActiveSubscriptions, listAllPayments, listAuditLogs } = require('../models/admin');
+const { activateFromPaymentId } = require('../services/paymentActivation');
+const { normalizePhone } = require('../utils/phone');
 const { computeSubscriptionEnd } = require('../models/user');
 const { listSocialLinks, upsertSocialLinks } = require('../models/socials');
 
@@ -47,6 +49,42 @@ router.get('/payments', async (req, res) => {
     res.json({ payments });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+/**
+ * POST /admin/api/payments/reconcile
+ * Body: { paymentId: "pay_...", phone?: "9876543210" }
+ * Fetches captured payment from Razorpay and activates subscription (fixes missed verify/webhook).
+ */
+router.post('/payments/reconcile', async (req, res) => {
+  try {
+    const paymentId = String(req.body?.paymentId || '').trim();
+    if (!paymentId.startsWith('pay_')) {
+      return res.status(400).json({ message: 'paymentId must start with pay_' });
+    }
+    const phone = req.body?.phone ? normalizePhone(req.body.phone) : null;
+    if (req.body?.phone && !phone) {
+      return res.status(400).json({ message: 'Valid 10-digit phone required' });
+    }
+
+    const result = await activateFromPaymentId(paymentId, phone);
+    await logAdminAction(req.admin.id, 'payment.reconcile', result.phone, {
+      paymentId,
+      planId: result.planId,
+      alreadyProcessed: result.alreadyProcessed,
+    });
+
+    res.json({
+      success: true,
+      phone: result.phone,
+      planId: result.planId,
+      subscriptionEnd: result.subscriptionEnd,
+      alreadyProcessed: result.alreadyProcessed,
+    });
+  } catch (err) {
+    console.error('payment reconcile error:', err.message || err);
+    res.status(err.status || 500).json({ message: err.message });
   }
 });
 

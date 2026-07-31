@@ -1,4 +1,4 @@
-package com.playnix.app;
+package com.rapido.tap;
 
 import com.facebook.react.ReactPackage;
 import com.facebook.react.bridge.NativeModule;

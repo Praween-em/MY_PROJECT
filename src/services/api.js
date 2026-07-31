@@ -52,6 +52,16 @@ async function request(method, path, body, token) {
     ? { ...body, deviceId: body.deviceId || deviceId, deviceLabel: body.deviceLabel || deviceLabel }
     : undefined;
 
+  // Always send phone in headers when present (backend auth reads body / Bearer / x-phone)
+  const phone = payload?.phone || body?.phone;
+  if (phone) {
+    const digits = String(phone).replace(/\D/g, '').slice(-10);
+    if (digits.length === 10) {
+      headers['x-phone'] = digits;
+      if (!token) headers.Authorization = `Bearer ${digits}`;
+    }
+  }
+
   const url = `${BASE_URL}${path}`;
   if (__DEV__) {
     console.log(`[api] ${method} ${url}`);

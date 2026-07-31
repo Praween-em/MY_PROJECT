@@ -123,9 +123,10 @@ export default function LoginScreen({ navigation }) {
         >
           <View style={styles.brandBlock}>
             <Image
-              source={require('../../assets/AppIcons/playstore.png')}
-              style={styles.brandLogo}
+              source={require('../../assets/superridextitle.png')}
+              style={styles.brandTitle}
               resizeMode="contain"
+              accessibilityLabel="SUPER RIDEX"
             />
           </View>
 
@@ -250,7 +251,17 @@ export default function LoginScreen({ navigation }) {
             )}
           </View>
 
-          <Text style={styles.terms}>By continuing you agree to Super Ridex Terms of Service</Text>
+          <Text style={styles.terms}>
+            By continuing you agree to our{' '}
+            <Text style={styles.termsLink} onPress={() => navigation.navigate('Terms')}>
+              Terms & Conditions
+            </Text>
+            {' '}and{' '}
+            <Text style={styles.termsLink} onPress={() => navigation.navigate('PrivacyPolicy')}>
+              Privacy Policy
+            </Text>
+            . SUPER RIDEX is an accessibility assistive tool for drivers who cannot reliably press Accept.
+          </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
@@ -267,11 +278,11 @@ const styles = StyleSheet.create({
     gap: 22,
   },
 
-  brandBlock: { alignItems: 'center', gap: 10 },
-  brandLogo: {
-    width: 160,
-    height: 160,
-    borderRadius: 28,
+  brandBlock: { alignItems: 'center', marginBottom: 4 },
+  brandTitle: {
+    width: '100%',
+    maxWidth: 320,
+    height: 72,
   },
 
   card: {
@@ -341,5 +352,6 @@ const styles = StyleSheet.create({
 
   resendRow: { flexDirection: 'row', justifyContent: 'center' },
   link: { color: colors.purpleBright, fontSize: 13, fontWeight: '600' },
-  terms: { textAlign: 'center', color: colors.icyMuted, fontSize: 12, marginBottom: 8 },
+  terms: { textAlign: 'center', color: colors.icyMuted, fontSize: 12, marginBottom: 8, lineHeight: 18 },
+  termsLink: { color: colors.purpleBright, fontWeight: '700' },
 });

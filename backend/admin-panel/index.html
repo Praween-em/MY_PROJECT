@@ -144,6 +144,24 @@
           </select>
           <button class="ghost" id="refreshPayments">Refresh</button>
         </div>
+        <div class="card" style="margin:0 0 14px; padding:14px; background:#f8fafc">
+          <p class="muted" style="margin:0 0 10px">Paid on Razorpay but missing here? Paste the <b>pay_…</b> ID from Razorpay dashboard → Payments.</p>
+          <div class="row">
+            <div style="flex:2">
+              <label>Razorpay Payment ID</label>
+              <input id="reconcilePaymentId" placeholder="pay_XXXXXXXXXXXXXXXX" />
+            </div>
+            <div>
+              <label>Phone (optional)</label>
+              <input id="reconcilePhone" placeholder="10-digit" maxlength="10" />
+            </div>
+            <div style="flex:0; min-width:120px">
+              <label>&nbsp;</label>
+              <button class="ok" id="reconcileBtn" style="width:100%">Activate</button>
+            </div>
+          </div>
+          <div id="reconcileMsg" class="ok-msg"></div>
+        </div>
         <div id="paymentsTable" style="overflow-x:auto"></div>
       </div>
 
@@ -293,6 +311,32 @@
     document.getElementById('refreshSubs').onclick = () => loadSubscriptions();
     document.getElementById('refreshPaid').onclick = () => loadPaid();
     document.getElementById('refreshPayments').onclick = () => loadPayments();
+    document.getElementById('reconcileBtn').onclick = async () => {
+      const paymentId = document.getElementById('reconcilePaymentId').value.trim();
+      const phone = document.getElementById('reconcilePhone').value.replace(/\D/g, '');
+      const msg = document.getElementById('reconcileMsg');
+      msg.textContent = '';
+      msg.className = 'ok-msg';
+      if (!paymentId.startsWith('pay_')) {
+        msg.textContent = 'Enter a valid pay_… ID from Razorpay dashboard';
+        msg.className = 'error';
+        return;
+      }
+      try {
+        const body = { paymentId };
+        if (phone) body.phone = phone;
+        const res = await api('/payments/reconcile', { method: 'POST', body: JSON.stringify(body) });
+        msg.textContent = res.alreadyProcessed
+          ? `Already active for ${res.phone} until ${fmtDT(res.subscriptionEnd)}`
+          : `Activated ${res.planId} for ${res.phone} until ${fmtDT(res.subscriptionEnd)}`;
+        document.getElementById('reconcilePaymentId').value = '';
+        await loadPayments();
+        await loadOverview();
+      } catch (e) {
+        msg.textContent = e.message;
+        msg.className = 'error';
+      }
+    };
     document.getElementById('refreshAudit').onclick = () => loadAudit();
     document.getElementById('subsLimit').onchange = () => loadSubscriptions();
     document.getElementById('paidLimit').onchange = () => loadPaid();

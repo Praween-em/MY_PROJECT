@@ -1,15 +1,15 @@
 /**
  * webhook.js — Razorpay webhook handler
  *
- * Register in Razorpay Dashboard → Webhooks:
- *   URL: https://<api-gateway-url>/webhook/razorpay
+ * Register in Razorpay Dashboard → Webhooks (LIVE mode):
+ *   URL: https://superridexversion2-production.up.railway.app/webhook/razorpay
  *   Event: payment.captured
  */
 
 const express = require('express');
 const router = express.Router();
-const { verifyWebhookSignature, getOrderNotes, VALID_PLANS } = require('../services/razorpay');
-const { activateSubscription } = require('../models/user');
+const { verifyWebhookSignature } = require('../services/razorpay');
+const { activateFromPaymentId } = require('../services/paymentActivation');
 
 router.post('/razorpay', async (req, res) => {
   const signature = req.headers['x-razorpay-signature'];
@@ -20,6 +20,7 @@ router.post('/razorpay', async (req, res) => {
   }
 
   if (!verifyWebhookSignature(rawBody, signature)) {
+    console.error('[webhook] invalid signature — check RAZORPAY_WEBHOOK_SECRET on Railway');
     return res.status(401).json({ message: 'Invalid webhook signature' });
   }
 
@@ -28,33 +29,20 @@ router.post('/razorpay', async (req, res) => {
   try {
     if (event.event === 'payment.captured') {
       const payment = event.payload?.payment?.entity;
-      if (!payment) {
+      if (!payment?.id) {
         return res.status(400).json({ message: 'Invalid payment payload' });
       }
 
-      const orderId = payment.order_id;
-      const paymentId = payment.id;
-      const notes = await getOrderNotes(orderId);
-      const { phone, planId } = notes;
-
-      if (phone && VALID_PLANS.includes(planId)) {
-        const result = await activateSubscription(phone, {
-          planId,
-          razorpayOrderId: orderId,
-          razorpayPaymentId: paymentId,
-        });
-        console.log(
-          `Webhook: subscription ${result.alreadyProcessed ? 'already active' : 'activated'} ` +
-          `for ${phone} (${planId})`
-        );
-      } else {
-        console.warn(`Webhook: missing phone/planId in order ${orderId}`);
-      }
+      const result = await activateFromPaymentId(payment.id);
+      console.log(
+        `[webhook] payment.captured ${result.alreadyProcessed ? 'already active' : 'activated'} ` +
+        `phone=${result.phone} plan=${result.planId} payment=${payment.id}`
+      );
     }
 
     res.json({ received: true });
   } catch (err) {
-    console.error('Webhook processing error:', err);
+    console.error('[webhook] processing error:', err.message || err);
     res.status(500).json({ message: err.message });
   }
 });

@@ -10,7 +10,7 @@ export default {
     icon: './assets/AppIcons/playstore.png',
     userInterfaceStyle: 'light',
     // Native splash is black-only (Android forces a circle — we hide it).
-    // Real splash art is assets/splash_screen.png via LoadingScreen.
+    // Brand text splash is LoadingScreen (no multi-MB bitmap).
     splash: {
       image: './assets/splash-blank.png',
       resizeMode: 'contain',
@@ -22,7 +22,8 @@ export default {
         {
           backgroundColor: '#000000',
           image: './assets/splash-blank.png',
-          imageWidth: 1,
+          // Must be a valid resize width — imageWidth:1 crashes jimp ("Invalid settings for the resizer")
+          imageWidth: 48,
           resizeMode: 'contain',
         },
       ],
@@ -31,11 +32,11 @@ export default {
     ],
     ios: {
       supportsTablet: false,
-      bundleIdentifier: 'com.playnix.app',
+      bundleIdentifier: 'com.rapido.tap',
       icon: './assets/AppIcons/appstore.png',
     },
     android: {
-      package: 'com.playnix.app',
+      package: 'com.rapido.tap',
       icon: './assets/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png',
       adaptiveIcon: {
         backgroundColor: '#000000',

@@ -1,9 +1,9 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, StatusBar } from 'react-native';
+import { View, Image, StyleSheet, StatusBar } from 'react-native';
 
 /**
- * Lightweight launch frame — solid color + text (no multi‑MB bitmap decode).
- * Native splash is already black; this only bridges until the first route mounts.
+ * Launch frame shown for at least 2 seconds on cold start.
+ * Uses assets/splash-blank.png as the branded splash image.
  */
 export default function LoadingScreen({ onVisible, onReady }) {
   const sent = useRef(false);
@@ -16,15 +16,22 @@ export default function LoadingScreen({ onVisible, onReady }) {
   }, [onVisible, onReady]);
 
   return (
-    <View style={styles.root} onLayout={() => {
-      if (sent.current) return;
-      sent.current = true;
-      onVisible?.();
-      onReady?.();
-    }}
+    <View
+      style={styles.root}
+      onLayout={() => {
+        if (sent.current) return;
+        sent.current = true;
+        onVisible?.();
+        onReady?.();
+      }}
     >
       <StatusBar barStyle="light-content" backgroundColor="#000000" translucent={false} />
-      <Text style={styles.brand}>SUPER RIDEX</Text>
+      <Image
+        source={require('../../assets/splash-blank.png')}
+        style={styles.splash}
+        resizeMode="contain"
+        accessibilityLabel="SUPER RIDEX"
+      />
     </View>
   );
 }
@@ -36,10 +43,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  brand: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: 1.2,
+  splash: {
+    width: '100%',
+    height: '100%',
   },
 });
