@@ -5,17 +5,30 @@
 const express = require('express');
 const router = express.Router();
 const { requirePhone, optionalDevice, requireDevice } = require('../middleware/auth');
-const { createOrder, VALID_PLANS } = require('../services/razorpay');
+const { createOrder } = require('../services/razorpay');
 const { activateFromCheckout } = require('../services/paymentActivation');
+const { getPlanById, listPublicPlans } = require('../models/plans');
 const { ensureUser, getUserByPhone } = require('../models/user');
 const { assertDeviceAllowed, checkEntitlement, DeviceLimitError } = require('../models/device');
 const { isSubscriptionActive } = require('../models/mapUser');
 
+/** GET /subscription/plans — public; app loads prices from here (no rebuild needed) */
+router.get('/plans', async (_req, res) => {
+  try {
+    const plans = await listPublicPlans();
+    res.json({ plans });
+  } catch (err) {
+    console.error('GET /subscription/plans:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.post('/create-order', requirePhone, async (req, res) => {
   try {
     const { planId } = req.body;
-    if (!VALID_PLANS.includes(planId)) {
-      return res.status(400).json({ message: 'Invalid planId' });
+    const plan = await getPlanById(planId, { enabledOnly: true });
+    if (!plan) {
+      return res.status(400).json({ message: 'Invalid or disabled planId' });
     }
 
     const order = await createOrder(planId, req.phone);

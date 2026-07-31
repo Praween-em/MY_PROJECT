@@ -4,7 +4,7 @@
 
 const { query, withTransaction } = require('../config/db');
 const { mapUser } = require('./mapUser');
-const { PLAN_AMOUNTS } = require('../services/razorpay');
+const { getPlanById } = require('./plans');
 const {
   generateReferralCode,
   isQualifyingPlan,
@@ -102,10 +102,11 @@ async function updateSubscription(phone, {
   );
 }
 
-function computeSubscriptionEnd(planType, fromDate = new Date()) {
-  const days = { monthly: 30, quarterly: 90 };
+async function computeSubscriptionEnd(planType, fromDate = new Date()) {
+  const plan = await getPlanById(planType);
+  const days = plan?.durationDays ?? (planType === 'quarterly' ? 90 : 30);
   const d = new Date(fromDate);
-  d.setDate(d.getDate() + (days[planType] || 30));
+  d.setDate(d.getDate() + days);
   return d.toISOString();
 }
 
@@ -189,7 +190,7 @@ async function activateSubscription(phone, {
       ? new Date(user.subscriptionEnd)
       : new Date();
   const now = new Date().toISOString();
-  const subscriptionEnd = computeSubscriptionEnd(planId, baseDate);
+  const subscriptionEnd = await computeSubscriptionEnd(planId, baseDate);
 
   await withTransaction(async (client) => {
     await client.query(
@@ -204,7 +205,8 @@ async function activateSubscription(phone, {
       [now, subscriptionEnd, planId, razorpayOrderId, razorpayPaymentId, phone]
     );
 
-    const resolvedAmount = amount ?? PLAN_AMOUNTS[planId] ?? null;
+    const plan = await getPlanById(planId);
+    const resolvedAmount = amount ?? plan?.amount ?? null;
 
     await client.query(
       `INSERT INTO payments (user_id, order_id, payment_id, plan_type, amount, status)

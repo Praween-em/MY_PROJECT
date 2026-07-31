@@ -92,6 +92,10 @@ async function request(method, path, body, token) {
   return data;
 }
 
+export async function getSubscriptionPlans() {
+  return request('GET', '/subscription/plans');
+}
+
 export async function createOrder(planId, phone) {
   return request('POST', '/subscription/create-order', { planId, phone });
 }

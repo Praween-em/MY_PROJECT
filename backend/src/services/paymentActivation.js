@@ -7,10 +7,21 @@ const {
   verifySignature,
   getOrderNotes,
   fetchPayment,
-  VALID_PLANS,
-  PLAN_AMOUNTS,
 } = require('./razorpay');
+const { getPlanById } = require('../models/plans');
 const { activateSubscription } = require('../models/user');
+
+async function resolvePlan(planIdFromNotes, planIdFromRequest) {
+  if (planIdFromNotes) {
+    const plan = await getPlanById(planIdFromNotes, { enabledOnly: false });
+    if (plan) return plan;
+  }
+  if (planIdFromRequest) {
+    const plan = await getPlanById(planIdFromRequest, { enabledOnly: false });
+    if (plan) return plan;
+  }
+  return null;
+}
 
 /**
  * After Razorpay checkout — verify HMAC signature and activate subscription.
@@ -48,28 +59,23 @@ async function activateFromCheckout({
     throw err;
   }
 
-  const resolvedPlan = VALID_PLANS.includes(notes.planId)
-    ? notes.planId
-    : VALID_PLANS.includes(planId)
-      ? planId
-      : null;
-
-  if (!resolvedPlan) {
+  const plan = await resolvePlan(notes.planId, planId);
+  if (!plan) {
     const err = new Error('Invalid planId');
     err.status = 400;
     throw err;
   }
 
-  const resolvedAmount = amount ?? PLAN_AMOUNTS[resolvedPlan] ?? null;
+  const resolvedAmount = amount ?? plan.amount;
 
   const result = await activateSubscription(resolvedPhone, {
-    planId: resolvedPlan,
+    planId: plan.id,
     razorpayOrderId,
     razorpayPaymentId,
     amount: resolvedAmount,
   });
 
-  return { ...result, phone: resolvedPhone, planId: resolvedPlan };
+  return { ...result, phone: resolvedPhone, planId: plan.id };
 }
 
 /**
@@ -103,21 +109,21 @@ async function activateFromPaymentId(paymentId, phoneOverride = null) {
     throw err;
   }
 
-  const planId = notes.planId;
-  if (!VALID_PLANS.includes(planId)) {
-    const err = new Error(`Invalid or missing plan on order (got: ${planId || 'none'})`);
+  const plan = await resolvePlan(notes.planId, null);
+  if (!plan) {
+    const err = new Error(`Invalid or missing plan on order (got: ${notes.planId || 'none'})`);
     err.status = 400;
     throw err;
   }
 
   const result = await activateSubscription(phone, {
-    planId,
+    planId: plan.id,
     razorpayOrderId: orderId,
     razorpayPaymentId: payment.id,
-    amount: payment.amount ?? PLAN_AMOUNTS[planId] ?? null,
+    amount: payment.amount ?? plan.amount,
   });
 
-  return { ...result, phone, planId };
+  return { ...result, phone, planId: plan.id };
 }
 
 module.exports = {

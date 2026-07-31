@@ -5,13 +5,7 @@
 const crypto = require('crypto');
 const { getRazorpay } = require('../config/razorpay');
 const { normalizePhone } = require('../utils/phone');
-
-const PLAN_AMOUNTS = {
-  monthly: 29900,
-  quarterly: 67500,
-};
-
-const VALID_PLANS = Object.keys(PLAN_AMOUNTS);
+const { getPlanById } = require('../models/plans');
 
 function verifyPaymentSignature({ razorpayOrderId, razorpayPaymentId, razorpaySignature }) {
   const secret = process.env.RAZORPAY_KEY_SECRET;
@@ -39,23 +33,24 @@ function verifyWebhookSignature(rawBody, signature) {
 }
 
 async function createOrder(planId, phone) {
-  const amount = PLAN_AMOUNTS[planId];
-  if (!amount) throw new Error('Invalid planId');
+  const plan = await getPlanById(planId, { enabledOnly: true });
+  if (!plan) throw new Error('Invalid or disabled planId');
 
   const normalizedPhone = normalizePhone(phone);
   if (!normalizedPhone) throw new Error('Valid 10-digit phone required');
 
   const order = await getRazorpay().orders.create({
-    amount,
+    amount: plan.amount,
     currency: 'INR',
     receipt: `sr_${normalizedPhone}_${Date.now()}`,
-    notes: { phone: normalizedPhone, planId },
+    notes: { phone: normalizedPhone, planId: plan.id },
   });
 
   return {
     orderId: order.id,
     amount: order.amount,
     currency: order.currency,
+    planId: plan.id,
   };
 }
 
@@ -72,8 +67,6 @@ async function fetchPayment(paymentId) {
 }
 
 module.exports = {
-  PLAN_AMOUNTS,
-  VALID_PLANS,
   createOrder,
   verifySignature: verifyPaymentSignature,
   verifyWebhookSignature,

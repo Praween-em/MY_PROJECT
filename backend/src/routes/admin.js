@@ -10,6 +10,7 @@ const { listDevicesForUser, removeDevice, resetDevices } = require('../models/de
 const { logAdminAction, listPaymentsForUser, getDashboardStats, listPaidCustomers, listActiveSubscriptions, listAllPayments, listAuditLogs } = require('../models/admin');
 const { activateFromPaymentId } = require('../services/paymentActivation');
 const { normalizePhone } = require('../utils/phone');
+const { listPlans, upsertPlans } = require('../models/plans');
 const { computeSubscriptionEnd } = require('../models/user');
 const { listSocialLinks, upsertSocialLinks } = require('../models/socials');
 
@@ -49,6 +50,35 @@ router.get('/payments', async (req, res) => {
     res.json({ payments });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+/** GET /admin/api/plans — all plans for editing */
+router.get('/plans', async (_req, res) => {
+  try {
+    const plans = await listPlans();
+    res.json({ plans });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/**
+ * PUT /admin/api/plans
+ * Body: { plans: [{ id, label?, amount?, durationDays?, description?, enabled?, sortOrder? }] }
+ * amount is in paise (₹299 = 29900)
+ */
+router.put('/plans', async (req, res) => {
+  try {
+    const updated = await upsertPlans(req.body || {});
+    await logAdminAction(req.admin.id, 'plans.update', null, {
+      planIds: updated.map((p) => p.id),
+    });
+    const plans = await listPlans();
+    res.json({ success: true, updated, plans });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ message: err.message });
   }
 });
 
@@ -196,7 +226,7 @@ router.patch('/users/:phone', async (req, res) => {
           : new Date();
       patch.planType = planId;
       patch.subscriptionStart = user.subscriptionStart || new Date().toISOString();
-      patch.subscriptionEnd = computeSubscriptionEnd(planId, base);
+      patch.subscriptionEnd = await computeSubscriptionEnd(planId, base);
     }
 
     // Revoke plan immediately

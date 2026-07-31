@@ -94,6 +94,7 @@
         <button class="tab" data-tab="paid">Paid Customers</button>
         <button class="tab" data-tab="payments">Payments</button>
         <button class="tab" data-tab="users">Users</button>
+        <button class="tab" data-tab="plans">Plan Pricing</button>
         <button class="tab" data-tab="socials">Social Links</button>
         <button class="tab" data-tab="audit">Audit Log</button>
         <button class="secondary" id="logoutBtn" style="margin-left:auto">Logout</button>
@@ -185,6 +186,17 @@
           </div>
         </div>
         <div id="userList" style="margin-top:14px; overflow-x:auto"></div>
+      </div>
+
+      <div id="tab-plans" class="card tab-panel hidden">
+        <h3 class="section-title">Subscription Plan Pricing</h3>
+        <p class="muted">Amounts are in <b>paise</b> (₹299 = 29900). App reads live prices from <code>GET /subscription/plans</code> — no rebuild needed.</p>
+        <div id="plansForm" style="margin-top:14px"></div>
+        <div class="actions">
+          <button id="savePlansBtn">Save plan pricing</button>
+          <button class="ghost" id="reloadPlansBtn">Reload</button>
+        </div>
+        <div id="plansMsg" class="muted" style="margin-top:8px"></div>
       </div>
 
       <div id="tab-socials" class="card tab-panel hidden">
@@ -282,6 +294,7 @@
       if (name === 'paid') loadPaid();
       if (name === 'payments') loadPayments();
       if (name === 'users') runSearch();
+      if (name === 'plans') loadPlans();
       if (name === 'socials') loadSocials();
       if (name === 'audit') loadAudit();
     }
@@ -347,6 +360,8 @@
       if (e.key === 'Enter') runSearch();
     });
     document.getElementById('reloadSocialsBtn').onclick = () => loadSocials();
+    document.getElementById('reloadPlansBtn').onclick = () => loadPlans();
+    document.getElementById('savePlansBtn').onclick = () => savePlans();
 
     document.getElementById('createUserBtn').onclick = async () => {
       const phone = document.getElementById('createPhone').value.replace(/\D/g, '');
@@ -556,6 +571,70 @@
         bindRowActions(list);
       } catch (e) {
         list.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+      }
+    }
+
+    async function loadPlans() {
+      const form = document.getElementById('plansForm');
+      const msg = document.getElementById('plansMsg');
+      msg.textContent = '';
+      form.innerHTML = '<p class="muted">Loading…</p>';
+      try {
+        const { plans } = await api('/plans');
+        form.innerHTML = (plans || []).map((p) => `
+          <div class="card" style="margin:0 0 10px; padding:12px; background:#f8fafc" data-plan-id="${esc(p.id)}">
+            <div class="row">
+              <div style="flex:0.5"><label>Plan ID</label><input value="${esc(p.id)}" disabled /></div>
+              <div><label>Label (app display)</label><input data-field="label" value="${esc(p.label || '')}" /></div>
+              <div style="flex:0.5"><label>Sort</label><input data-field="sortOrder" type="number" value="${p.sortOrder ?? 0}" /></div>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <div>
+                <label>Amount (paise)</label>
+                <input data-field="amount" type="number" min="100" step="100" value="${p.amount}" />
+                <span class="muted" style="font-size:11px">= ${esc(p.priceDisplay || ('₹' + (p.amount / 100)))}</span>
+              </div>
+              <div>
+                <label>Duration (days)</label>
+                <input data-field="durationDays" type="number" min="1" max="730" value="${p.durationDays}" />
+              </div>
+            </div>
+            <div style="margin-top:10px"><label>Description (Razorpay checkout)</label>
+              <input data-field="description" value="${esc(p.description || '')}" />
+            </div>
+            <label style="margin-top:10px; display:flex; align-items:center; gap:8px; font-size:13px">
+              <input data-field="enabled" type="checkbox" ${p.enabled ? 'checked' : ''} style="width:auto" />
+              Enabled (show in app &amp; allow checkout)
+            </label>
+          </div>
+        `).join('') || '<p class="muted">No plans — run <code>npm run migrate</code>.</p>';
+      } catch (e) {
+        form.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+      }
+    }
+
+    async function savePlans() {
+      const msg = document.getElementById('plansMsg');
+      msg.textContent = 'Saving…';
+      try {
+        const plans = [...document.querySelectorAll('#plansForm [data-plan-id]')].map((card) => ({
+          id: card.dataset.planId,
+          label: card.querySelector('[data-field="label"]').value.trim(),
+          amount: Number(card.querySelector('[data-field="amount"]').value),
+          durationDays: Number(card.querySelector('[data-field="durationDays"]').value),
+          description: card.querySelector('[data-field="description"]').value.trim(),
+          sortOrder: Number(card.querySelector('[data-field="sortOrder"]').value) || 0,
+          enabled: card.querySelector('[data-field="enabled"]').checked,
+        }));
+        await api('/plans', { method: 'PUT', body: JSON.stringify({ plans }) });
+        msg.className = 'ok-msg';
+        msg.textContent = 'Saved. App picks up new prices on next Plans screen open.';
+        toast('Plan pricing saved');
+        loadPlans();
+      } catch (e) {
+        msg.className = 'error';
+        msg.textContent = e.message;
+        toast(e.message, true);
       }
     }
 

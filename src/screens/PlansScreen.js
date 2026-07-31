@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   StatusBar, ScrollView, ActivityIndicator, Alert,
@@ -7,42 +7,74 @@ import Screen from '../components/Screen';
 import { colors } from '../theme/colors';
 import { getStoredUser, saveUser } from '../utils/storage';
 import { openCheckout, isPaymentCancelled } from '../services/payment';
-import { getSubscriptionStatus } from '../services/api';
+import { getSubscriptionStatus, getSubscriptionPlans } from '../services/api';
 import { replaceRoot } from '../navigation/rootNavigation';
 
-const PLANS = [
-  {
-    id: 'monthly',
-    label: '1 Month',
-    price: '₹299',
-    duration: '30 days',
-    perDay: '₹9.9 / day',
+const PLAN_STYLE = {
+  monthly: {
     popular: true,
     accent: colors.purple,
     accentGlow: colors.purpleGlow,
-    accentBorder: colors.borderPurple,
     features: ['Auto-accept rides', 'Nuclear mode (0ms)', 'All supported apps', 'Priority support'],
   },
-  {
-    id: 'quarterly',
-    label: '3 Months',
-    price: '₹675',
-    duration: '90 days',
-    perDay: '₹7.5 / day',
+  quarterly: {
     popular: false,
     accent: colors.blue,
     accentGlow: colors.blueGlow,
-    accentBorder: colors.borderBlue,
     features: ['Auto-accept rides', 'All supported apps', 'Priority support', 'Best value'],
   },
-];
+};
+
+const DEFAULT_FEATURES = ['Auto-accept rides', 'All supported apps', 'Priority support'];
+
+function mergePlan(apiPlan) {
+  const style = PLAN_STYLE[apiPlan.id] || {};
+  return {
+    id: apiPlan.id,
+    label: apiPlan.label,
+    price: apiPlan.priceDisplay,
+    duration: apiPlan.duration,
+    perDay: apiPlan.perDay,
+    description: apiPlan.description,
+    amount: apiPlan.amount,
+    popular: style.popular ?? false,
+    accent: style.accent ?? colors.purple,
+    accentGlow: style.accentGlow ?? colors.purpleGlow,
+    features: style.features ?? DEFAULT_FEATURES,
+  };
+}
 
 export default function PlansScreen({ navigation }) {
-  const [selected, setSelected] = useState('monthly');
+  const [plans, setPlans] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
-  const plan = PLANS.find(p => p.id === selected);
+  const plan = plans.find(p => p.id === selected);
+
+  const loadPlans = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { plans: remote } = await getSubscriptionPlans();
+      const merged = (remote || []).map(mergePlan);
+      setPlans(merged);
+      setSelected((prev) => {
+        if (prev && merged.some((p) => p.id === prev)) return prev;
+        return merged[0]?.id ?? null;
+      });
+    } catch (err) {
+      Alert.alert('Could not load plans', err.message || 'Check your connection and try again.');
+      setPlans([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPlans();
+  }, [loadPlans]);
 
   const handlePay = async () => {
+    if (!plan) return;
     const user = await getStoredUser();
     if (!user?.phone) {
       Alert.alert('Login Required', 'Please enter your phone number first.');
@@ -52,16 +84,18 @@ export default function PlansScreen({ navigation }) {
 
     setPaying(true);
     try {
-      const result = await openCheckout(selected, user.phone);
+      const result = await openCheckout(plan.id, user.phone, {
+        description: plan.description,
+        label: plan.label,
+      });
       if (!result?.subscriptionEnd && !result?.success) {
         throw new Error('Payment verified but subscription was not activated. Contact support.');
       }
-      // Re-read from Railway so Home matches DB (not only local cache)
       let remote = null;
       try {
         remote = await getSubscriptionStatus(user.phone);
       } catch {
-        // verify already succeeded — use result below
+        // verify already succeeded
       }
       const subscriptionEnd = remote?.subscriptionEnd || result.subscriptionEnd;
       const isActive = remote?.active ?? (subscriptionEnd && new Date(subscriptionEnd) > new Date());
@@ -73,7 +107,7 @@ export default function PlansScreen({ navigation }) {
       await saveUser({
         ...user,
         active: isActive,
-        planType: remote?.planType || selected,
+        planType: remote?.planType || plan.id,
         subscriptionEnd,
         subscriptionStart: remote?.subscriptionStart || new Date().toISOString(),
       });
@@ -90,6 +124,30 @@ export default function PlansScreen({ navigation }) {
     }
   };
 
+  if (loading) {
+    return (
+      <Screen>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.purple} />
+          <Text style={styles.loadingText}>Loading plans…</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  if (!plans.length) {
+    return (
+      <Screen>
+        <View style={styles.center}>
+          <Text style={styles.loadingText}>No plans available right now.</Text>
+          <TouchableOpacity onPress={loadPlans} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
@@ -100,7 +158,7 @@ export default function PlansScreen({ navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {PLANS.map(p => {
+        {plans.map(p => {
           const isSelected = selected === p.id;
           return (
             <TouchableOpacity
@@ -169,7 +227,7 @@ export default function PlansScreen({ navigation }) {
             paying && { opacity: 0.7 },
           ]}
           onPress={handlePay}
-          disabled={paying}
+          disabled={paying || !plan}
           activeOpacity={0.85}
         >
           {paying ? (
@@ -188,6 +246,10 @@ export default function PlansScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
+  loadingText: { color: colors.icyDim, fontSize: 15, fontWeight: '600' },
+  retryBtn: { paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.purple, borderRadius: 8 },
+  retryText: { color: colors.white, fontWeight: '700' },
   header: {
     paddingHorizontal: 24, paddingTop: 24, paddingBottom: 16,
     borderBottomWidth: 1, borderBottomColor: colors.border,
