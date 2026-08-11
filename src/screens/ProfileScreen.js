@@ -15,7 +15,7 @@ import { formatExpiryDate } from '../utils/formatDate';
 const REFERRAL_GOAL = 10;
 
 export default function ProfileScreen({ navigation }) {
-  const { planType, subscriptionEnd, daysRemaining, isActive } = useSubscription();
+  const { subscriptionEnd, isActive } = useSubscription();
   const {
     referralCode,
     totalReferrals,
@@ -77,13 +77,7 @@ export default function ProfileScreen({ navigation }) {
 
           {[
             { label: 'Phone', value: phone || '—' },
-            { label: 'Plan', value: planType === 'quarterly' ? '3 Months' : planType === 'monthly' ? '1 Month' : '—' },
             { label: 'Plan Expiry', value: formatExpiryDate(subscriptionEnd) },
-            {
-              label: 'Days Remaining',
-              value: isActive ? `${daysRemaining} days` : 'Expired',
-              valueColor: isActive ? colors.onGreen : colors.offRed,
-            },
           ].map((row, i) => (
             <View key={i} style={styles.detailRow}>
               <Text style={styles.detailLabel}>{row.label}</Text>

@@ -23,6 +23,7 @@ function assert(label, condition) {
 
 console.log('Referral logic verification\n');
 
+assert('trial does not qualify referral', !isQualifyingPlan('trial'));
 assert('monthly qualifies', isQualifyingPlan('monthly'));
 assert('quarterly qualifies', isQualifyingPlan('quarterly'));
 assert('weekly does NOT qualify', !isQualifyingPlan('weekly'));

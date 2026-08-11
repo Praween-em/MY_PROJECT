@@ -10,7 +10,7 @@ const { listDevicesForUser, removeDevice, resetDevices } = require('../models/de
 const { logAdminAction, listPaymentsForUser, getDashboardStats, listPaidCustomers, listActiveSubscriptions, listAllPayments, listAuditLogs } = require('../models/admin');
 const { activateFromPaymentId } = require('../services/paymentActivation');
 const { normalizePhone } = require('../utils/phone');
-const { listPlans, upsertPlans } = require('../models/plans');
+const { listPlans, upsertPlans, ALLOWED_PLAN_IDS } = require('../models/plans');
 const { computeSubscriptionEnd } = require('../models/user');
 const { listSocialLinks, upsertSocialLinks } = require('../models/socials');
 
@@ -217,8 +217,8 @@ router.patch('/users/:phone', async (req, res) => {
     // Convenience: grant a full plan from now
     if (req.body.grantPlan) {
       const planId = req.body.grantPlan;
-      if (!['monthly', 'quarterly'].includes(planId)) {
-        return res.status(400).json({ message: 'grantPlan must be monthly or quarterly' });
+      if (!ALLOWED_PLAN_IDS.has(planId)) {
+        return res.status(400).json({ message: 'grantPlan must be trial, monthly, or quarterly' });
       }
       const base =
         user.subscriptionEnd && new Date(user.subscriptionEnd) > new Date()

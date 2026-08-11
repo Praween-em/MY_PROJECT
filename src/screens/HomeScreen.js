@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, TextInput,
+  View, Text, TouchableOpacity,
   StyleSheet, StatusBar, ScrollView,
   Animated, Alert, Linking,
 } from 'react-native';
@@ -15,11 +15,12 @@ import {
   openAppInfoSettings,
   openNotificationListenerSettings,
   needsRestrictedSettingsUnlock,
+  requestNotificationPermission,
 } from '../services/permissions';
 import { navigateRoot, replaceRoot } from '../navigation/rootNavigation';
 import { clearUser, getStoredUser } from '../utils/storage';
 import { getSettings } from '../utils/settingsStorage';
-import { formatExpiryDate, formatPlanLabel } from '../utils/formatDate';
+import { formatExpiryDate } from '../utils/formatDate';
 import AppSwitch from '../components/AppSwitch';
 import { checkEntitlement, ApiError, getSocialLinks } from '../services/api';
 import {
@@ -28,18 +29,14 @@ import {
   saveSettings,
   setServiceEnabled,
   setNuclearMode,
-  setMinPrice as setNativeMinPrice,
   isNativeAvailable,
 } from '../services/autoclicker';
-
-const MIN_PRICE = 0;
-const MAX_PRICE = 2500;
 
 /** Offline fallback only — live URLs come from GET /socials (admin panel). */
 const DEFAULT_SOCIAL_LINKS = {
   whatsapp: '',
-  instagram: '',
   youtube: '',
+  telegram: '',
 };
 
 const openSocialLink = async (url) => {
@@ -55,22 +52,16 @@ const openSocialLink = async (url) => {
 };
 
 const DEFAULT_PACKAGES = [
-  'com.rapido.rider',        // Rapido driver/captain app (confirmed package name)
-  'com.rideandhra.driverapp',// RideAndhra driver app
-  'com.olacabs.driver',
-  'com.ubercab.driver',
+  'com.rapido.rider',
+  'com.rapido.captain',
+  'com.rapido.driver',
 ];
-
-function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
 
 export default function HomeScreen({ navigation }) {
   const { status: permStatus } = usePermissions();
   const {
     isActive,
-    daysRemaining,
-    planType,
     subscriptionEnd,
-    subscriptionStart,
     subscription,
     loading: subLoading,
     refresh: refreshSub,
@@ -79,8 +70,6 @@ export default function HomeScreen({ navigation }) {
 
   const [enabled, setEnabled]       = useState(false);
   const [nuclearMode, setNuclear]   = useState(true);
-  const [minPrice, setMinPrice]     = useState(0);
-  const [minPriceText, setMinPriceText] = useState('0');
   const [elapsed, setElapsed]       = useState(0);
   const [saving, setSaving]         = useState(false);
   const [socialLinks, setSocialLinks] = useState(DEFAULT_SOCIAL_LINKS);
@@ -117,9 +106,6 @@ export default function HomeScreen({ navigation }) {
       if (isNativeAvailable()) {
         const status = await getServiceStatus();
         setNuclear(status.nuclearMode !== false);
-        const p = status.minPrice ?? 0;
-        setMinPrice(p);
-        setMinPriceText(String(p));
       }
     } catch (err) {
       console.warn('Refresh error:', err);
@@ -131,9 +117,6 @@ export default function HomeScreen({ navigation }) {
     getServiceStatus()
       .then(async (status) => {
         setNuclear(status.nuclearMode !== false);
-        const p = status.minPrice ?? 0;
-        setMinPrice(p);
-        setMinPriceText(String(p));
         if (subLoading) return;
         const wantOn = !!status.enabled && featuresAllowed;
         setEnabled(wantOn);
@@ -180,7 +163,6 @@ export default function HomeScreen({ navigation }) {
           if (cancelled || !data) return;
           setSocialLinks({
             whatsapp: data.whatsapp || '',
-            instagram: data.instagram || '',
             youtube: data.youtube || '',
             telegram: data.telegram || '',
             support: data.support || '',
@@ -284,6 +266,13 @@ export default function HomeScreen({ navigation }) {
       );
       return;
     }
+    if (value) {
+      try {
+        await requestNotificationPermission();
+      } catch {
+        // ignore — a11y race still works without posting notifications
+      }
+    }
     if (value && accessOn && !nlsOn) {
       Alert.alert(
         'Enable Notification Access',
@@ -304,25 +293,6 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
-  const commitMinPrice = (text) => {
-    const n = parseInt(text, 10);
-    if (text === '' || isNaN(n)) {
-      setMinPriceText('0');
-      setMinPrice(0);
-      if (isNativeAvailable()) {
-        setNativeMinPrice(0).catch(() => {});
-      }
-      return;
-    }
-    const clamped = clamp(n, MIN_PRICE, MAX_PRICE);
-    setMinPrice(clamped);
-    setMinPriceText(String(clamped));
-    // Push to native prefs immediately (blur) so a11y/NLS see it before SAVE
-    if (isNativeAvailable()) {
-      setNativeMinPrice(clamped).catch(() => {});
-    }
-  };
-
   const handleSave = async () => {
     if (!isNativeAvailable()) {
       Alert.alert('Android Only', 'Native auto-clicker runs on a built Android app.');
@@ -335,13 +305,9 @@ export default function HomeScreen({ navigation }) {
     setSaving(true);
     try {
       const settings = await getSettings();
-      const status = await getServiceStatus();
-      // Never persist stale Home defaults over live native prefs (was resetting min→0 / enabled→off).
       const nextEnabled = featuresAllowed ? enabled : false;
-      const nextMin = Number.isFinite(minPrice) ? minPrice : (status.minPrice ?? 0);
       await saveSettings({
         enabled: nextEnabled,
-        minPrice: nextMin,
         nuclearMode,
         delayMs: nuclearMode ? 0 : (settings.delayMs ?? 0),
         monitoredPackages: DEFAULT_PACKAGES,
@@ -415,33 +381,17 @@ export default function HomeScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* Subscription expiry card */}
+        {/* Subscription — expiry only */}
         <View style={[styles.expiryCard, isActive ? styles.expiryActive : styles.expiryExpired]}>
           <View style={styles.expiryHeader}>
-            <Text style={styles.expiryLabel}>SUBSCRIPTION</Text>
+            <Text style={styles.expiryLabel}>PLAN EXPIRY</Text>
             <View style={[styles.statusPill, isActive ? styles.pillOn : styles.pillOff]}>
               <Text style={[styles.statusPillText, isActive ? styles.textOn : styles.textOff]}>
                 {isActive ? 'ACTIVE' : 'EXPIRED'}
               </Text>
             </View>
           </View>
-          <Text style={styles.expiryPlan}>{formatPlanLabel(planType)} Plan</Text>
-          <View style={styles.expiryRow}>
-            <View style={styles.expiryCol}>
-              <Text style={styles.expiryMetaLabel}>Expires</Text>
-              <Text style={styles.expiryMetaValue}>{formatExpiryDate(subscriptionEnd)}</Text>
-            </View>
-            <View style={styles.expiryCol}>
-              <Text style={styles.expiryMetaLabel}>Days Left</Text>
-              <Text style={[styles.expiryMetaValue, isActive && { color: colors.onGreen }]}>
-                {isActive ? daysRemaining : 0}
-              </Text>
-            </View>
-            <View style={styles.expiryCol}>
-              <Text style={styles.expiryMetaLabel}>Started</Text>
-              <Text style={styles.expiryMetaValue}>{formatExpiryDate(subscriptionStart)}</Text>
-            </View>
-          </View>
+          <Text style={styles.expiryMetaValueLarge}>{formatExpiryDate(subscriptionEnd)}</Text>
           <TouchableOpacity
             style={styles.renewBtn}
             onPress={() => navigateRoot(navigation, 'Plans')}
@@ -499,7 +449,7 @@ export default function HomeScreen({ navigation }) {
         <Text style={styles.modeHint}>
           {nuclearMode
             ? 'Nuclear — fastest auto-accept for every ride.'
-            : 'Standard — checks price before accepting.'}
+            : 'Standard — balanced auto-accept.'}
         </Text>
 
         <View style={styles.modeRow}>
@@ -533,31 +483,7 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Min price — editable text block */}
-        <View style={styles.priceCard}>
-          <Text style={styles.priceCardLabel}>Min Ride Price</Text>
-          <Text style={styles.priceRangeHint}>Enter amount between ₹{MIN_PRICE} and ₹{MAX_PRICE}</Text>
-          <View style={styles.priceEditBlock}>
-            <Text style={styles.rupeeSign}>₹</Text>
-            <TextInput
-              style={styles.priceInput}
-              value={minPriceText}
-              onChangeText={setMinPriceText}
-              onBlur={() => commitMinPrice(minPriceText)}
-              keyboardType="number-pad"
-              keyboardAppearance="light"
-              maxLength={4}
-              placeholder="0"
-              placeholderTextColor={colors.icyMuted}
-              cursorColor="#000000"
-              underlineColorAndroid="transparent"
-              selectTextOnFocus
-            />
-          </View>
-          <Text style={styles.priceHint}>
-            Rides at ₹{minPrice} or above will be auto-accepted
-          </Text>
-        </View>
+        {/* Min price UI removed — always accept any fare */}
 
         <TouchableOpacity
           style={[styles.saveBtn, saving && { opacity: 0.6 }]}
@@ -584,16 +510,6 @@ export default function HomeScreen({ navigation }) {
 
           <Text style={styles.socialsLabel}>SOCIALS</Text>
           <View style={styles.socialsRow}>
-            {!!socialLinks.instagram && (
-              <TouchableOpacity
-                style={styles.socialBtn}
-                onPress={() => openSocialLink(socialLinks.instagram)}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="logo-instagram" size={22} color="#E4405F" />
-                <Text style={styles.socialBtnText}>Instagram</Text>
-              </TouchableOpacity>
-            )}
             {!!socialLinks.youtube && (
               <TouchableOpacity
                 style={styles.socialBtn}
@@ -659,6 +575,7 @@ const styles = StyleSheet.create({
   textOn: { color: colors.onGreen },
   textOff: { color: colors.offRed },
   expiryPlan: { fontSize: 18, fontWeight: '700', color: colors.icy },
+  expiryMetaValueLarge: { fontSize: 22, fontWeight: '800', color: colors.icy },
   expiryRow: { flexDirection: 'row', gap: 8 },
   expiryCol: { flex: 1, backgroundColor: colors.surfaceLight, borderRadius: 10, padding: 10 },
   expiryMetaLabel: { fontSize: 10, color: colors.icyMuted, fontWeight: '600', letterSpacing: 0.5 },

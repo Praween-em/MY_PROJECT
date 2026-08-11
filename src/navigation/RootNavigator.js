@@ -7,6 +7,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import LoginScreen from '../screens/LoginScreen';
 import PlansScreen from '../screens/PlansScreen';
 import PermissionsSetupScreen from '../screens/PermissionsSetupScreen';
+import ServiceReliabilityScreen from '../screens/ServiceReliabilityScreen';
 import LoadingScreen from '../screens/LoadingScreen';
 import PrivacyPolicyScreen from '../screens/PrivacyPolicyScreen';
 import TermsScreen from '../screens/TermsScreen';
@@ -96,6 +97,7 @@ export default function RootNavigator() {
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Plans" component={PlansScreen} />
           <Stack.Screen name="PermissionsSetup" component={PermissionsSetupScreen} />
+          <Stack.Screen name="ServiceReliability" component={ServiceReliabilityScreen} />
           <Stack.Screen name="Main" component={MainTabs} />
           <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
           <Stack.Screen name="Terms" component={TermsScreen} />

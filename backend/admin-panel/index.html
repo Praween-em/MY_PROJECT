@@ -411,6 +411,7 @@
         ${opts.block
           ? `<button class="danger" data-quick-block="${p}">Block</button>`
           : `<button class="ghost" data-quick-unblock="${p}">Unblock</button>`}
+        <button class="ok" data-quick-grant="${p}" data-plan="trial">+3 day</button>
         <button class="ok" data-quick-grant="${p}" data-plan="monthly">+1 mo</button>
         <button class="ok" data-quick-grant="${p}" data-plan="quarterly">+3 mo</button>
         <button class="ghost" data-quick-reset="${p}">Reset devices</button>
@@ -747,6 +748,7 @@
               <label>Plan type</label>
               <select id="planTypeSelect">
                 <option value="">—</option>
+                <option value="trial" ${u.planType === 'trial' ? 'selected' : ''}>trial</option>
                 <option value="monthly" ${u.planType === 'monthly' ? 'selected' : ''}>monthly</option>
                 <option value="quarterly" ${u.planType === 'quarterly' ? 'selected' : ''}>quarterly</option>
               </select>
@@ -766,7 +768,7 @@
           <div class="row">
             <div>
               <label>Grant plan (extends from current end if active)</label>
-              <select id="grantPlan"><option value="monthly">1 Month</option><option value="quarterly">3 Months</option></select>
+              <select id="grantPlan"><option value="trial">3-Day Trial</option><option value="monthly">1 Month</option><option value="quarterly">3 Months</option></select>
             </div>
             <div style="flex:0"><label>&nbsp;</label><button id="grantPlanBtn">Grant plan</button></div>
             <div>

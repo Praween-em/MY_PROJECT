@@ -3,9 +3,9 @@
  * Helpers for checking and requesting critical Android permissions:
  *   1. Accessibility Service  — injects Accept taps
  *   2. Notification Listener  — dual-channel race (often earlier than a11y notifs)
- *   3. Display Over Other Apps (SYSTEM_ALERT_WINDOW)
- *   4. Battery Optimization Exemption
+ *   3. Battery Optimization Exemption
  *
+ * Display-over-other-apps is not required (Accept uses Accessibility, not our overlay).
  * All functions are no-ops on non-Android platforms.
  */
 
@@ -62,23 +62,6 @@ export function openNotificationListenerSettings() {
   }
 }
 
-// ─── Display Over Other Apps ──────────────────────────────────────────────────
-
-export function isOverlayPermissionGranted() {
-  if (Platform.OS !== 'android') return Promise.resolve(false);
-  if (!AutoClickerModule.isOverlayPermissionGranted) return Promise.resolve(false);
-  return AutoClickerModule.isOverlayPermissionGranted();
-}
-
-export function openOverlaySettings() {
-  if (Platform.OS !== 'android') return;
-  if (AutoClickerModule.openOverlaySettings) {
-    AutoClickerModule.openOverlaySettings();
-  } else {
-    Linking.openSettings();
-  }
-}
-
 // ─── Battery Optimization ─────────────────────────────────────────────────────
 
 export function isBatteryOptimizationIgnored() {
@@ -109,11 +92,10 @@ export async function requestNotificationPermission() {
 // ─── All-in-one status check ─────────────────────────────────────────────────
 
 export async function getAllPermissionsStatus() {
-  const [accessibility, notificationListener, overlay, battery] = await Promise.all([
+  const [accessibility, notificationListener, battery] = await Promise.all([
     isAccessibilityEnabled(),
     isNotificationListenerEnabled(),
-    isOverlayPermissionGranted(),
     isBatteryOptimizationIgnored(),
   ]);
-  return { accessibility, notificationListener, overlay, battery };
+  return { accessibility, notificationListener, battery };
 }

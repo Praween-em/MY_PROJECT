@@ -17,6 +17,7 @@ const JAVA_FILES = [
   'AutoClickerPackage.java',
   'BootReceiver.java',
   'RideAlertListener.java',
+  'ServiceHealth.java',
 ];
 
 const ACCESSIBILITY_XML = `<?xml version="1.0" encoding="utf-8"?>
@@ -52,16 +53,20 @@ const NETWORK_SECURITY_CONFIG_XML = `<?xml version="1.0" encoding="utf-8"?>
 </network-security-config>
 `;
 
-const ABI_SPLITS_BLOCK = `
-    // Phone ABIs only — cut ~2–3× fat-APK size (no x86 emulator libs in release)
+const UNIVERSAL_APK_BLOCK = `
+    // One universal APK for all phones (armeabi-v7a + arm64-v8a). No per-ABI packages.
     splits {
         abi {
-            enable true
-            reset()
-            include "armeabi-v7a", "arm64-v8a"
-            universalApk false
+            enable false
         }
     }
+`;
+
+const NDK_ABI_FILTERS_BLOCK = `
+        // Phone ABIs only inside the single APK (no x86 emulator libs)
+        ndk {
+            abiFilters "armeabi-v7a", "arm64-v8a"
+        }
 `;
 
 function writeNetworkSecurityConfig(platformRoot) {
@@ -126,6 +131,9 @@ function withAutoClickerManifest(config) {
 
     const a11ySvc = app.service.find((s) => s.$?.['android:name'] === '.AutoClickerService');
     if (a11ySvc?.$) {
+      // Separate process so swipe-killing the UI task does not kill Accept
+      a11ySvc.$['android:process'] = ':engine';
+      a11ySvc.$['android:stopWithTask'] = 'false';
       a11ySvc.$['android:foregroundServiceType'] = 'specialUse';
       a11ySvc.property = a11ySvc.property ?? [];
       const hasProp = a11ySvc.property.some(
@@ -141,6 +149,12 @@ function withAutoClickerManifest(config) {
       }
     }
 
+    const nlsSvc = app.service.find((s) => s.$?.['android:name'] === '.RideAlertListener');
+    if (nlsSvc?.$) {
+      nlsSvc.$['android:process'] = ':engine';
+      nlsSvc.$['android:stopWithTask'] = 'false';
+    }
+
     const hasA11y = app.service.some((s) => s.$?.['android:name'] === '.AutoClickerService');
     if (!hasA11y) {
       app.service.push({
@@ -150,6 +164,8 @@ function withAutoClickerManifest(config) {
           'android:label': '@string/app_name',
           'android:permission': 'android.permission.BIND_ACCESSIBILITY_SERVICE',
           'android:foregroundServiceType': 'specialUse',
+          'android:process': ':engine',
+          'android:stopWithTask': 'false',
         },
         'intent-filter': [
           {
@@ -185,6 +201,8 @@ function withAutoClickerManifest(config) {
           'android:label': 'SUPER RIDEX Alerts',
           'android:permission': 'android.permission.BIND_NOTIFICATION_LISTENER_SERVICE',
           'android:exported': 'true',
+          'android:process': ':engine',
+          'android:stopWithTask': 'false',
         },
         'intent-filter': [
           {
@@ -240,7 +258,7 @@ function withAutoClickerStrings(config) {
       ),
       {
         $: { name: 'accessibility_service_description' },
-        _: 'SUPER RIDEX monitors ride requests in Ola, Uber and other driver apps and automatically taps Accept when the fare meets your minimum price.',
+        _: 'SUPER RIDEX monitors ride requests in the Rapido Captain app and automatically taps Accept when a matching offer appears.',
       },
     ];
     return mod;
@@ -436,12 +454,27 @@ function patchReleaseSize(platformRoot) {
     .replace(/\n\s*implementation\("dev\.rikka\.shizuku:api:[^"]+"\)/g, '')
     .replace(/\n\s*implementation\("dev\.rikka\.shizuku:provider:[^"]+"\)/g, '');
 
-  if (!contents.includes('include "armeabi-v7a", "arm64-v8a"')) {
+  // One universal APK — strip any per-ABI split blocks, then ensure splits are off
+  if (/splits\s*\{\s*abi\s*\{/.test(contents)) {
+    contents = contents.replace(
+      /(?:\/\/[^\n]*\n\s*)?splits\s*\{\s*abi\s*\{[\s\S]*?\}\s*\}/,
+      UNIVERSAL_APK_BLOCK.trim()
+    );
+    console.log('[withAutoClicker] app/build.gradle: universal APK (ABI splits off)');
+  } else {
     contents = contents.replace(
       /android\s*\{/,
-      (m) => `${m}\n${ABI_SPLITS_BLOCK}`
+      (m) => `${m}\n${UNIVERSAL_APK_BLOCK}`
     );
-    console.log('[withAutoClicker] app/build.gradle: ABI splits enabled');
+    console.log('[withAutoClicker] app/build.gradle: universal APK block added');
+  }
+
+  if (!contents.includes('abiFilters "armeabi-v7a", "arm64-v8a"')) {
+    contents = contents.replace(
+      /(defaultConfig\s*\{[\s\S]*?buildConfigField[^\n]+\n)/,
+      (m) => `${m}${NDK_ABI_FILTERS_BLOCK}`
+    );
+    console.log('[withAutoClicker] app/build.gradle: ndk abiFilters for universal APK');
   }
 
   fs.writeFileSync(gradlePath, contents);

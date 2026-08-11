@@ -11,8 +11,16 @@ import { getSubscriptionStatus, getSubscriptionPlans } from '../services/api';
 import { replaceRoot } from '../navigation/rootNavigation';
 
 const PLAN_STYLE = {
-  monthly: {
+  trial: {
     popular: true,
+    badge: 'TRY FIRST',
+    accent: colors.onGreen,
+    accentGlow: 'rgba(34, 197, 94, 0.12)',
+    features: ['Full auto-accept for 3 days', 'Try before you commit', 'Same features as paid plans', 'Upgrade anytime'],
+  },
+  monthly: {
+    popular: false,
+    badge: 'MOST POPULAR',
     accent: colors.purple,
     accentGlow: colors.purpleGlow,
     features: ['Auto-accept rides', 'Nuclear mode (0ms)', 'All supported apps', 'Priority support'],
@@ -38,6 +46,7 @@ function mergePlan(apiPlan) {
     description: apiPlan.description,
     amount: apiPlan.amount,
     popular: style.popular ?? false,
+    badge: style.badge,
     accent: style.accent ?? colors.purple,
     accentGlow: style.accentGlow ?? colors.purpleGlow,
     features: style.features ?? DEFAULT_FEATURES,
@@ -153,8 +162,8 @@ export default function PlansScreen({ navigation }) {
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
 
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Renewal Plans</Text>
-        <Text style={styles.headerSub}>Choose a plan to keep auto-accept running</Text>
+        <Text style={styles.headerTitle}>Choose a Plan</Text>
+        <Text style={styles.headerSub}>Start with a 3-day trial or pick a longer plan</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -172,7 +181,7 @@ export default function PlansScreen({ navigation }) {
             >
               {p.popular && (
                 <View style={[styles.popularBadge, { backgroundColor: p.accent }]}>
-                  <Text style={styles.popularText}>MOST POPULAR</Text>
+                  <Text style={styles.popularText}>{p.badge || 'MOST POPULAR'}</Text>
                 </View>
               )}
 

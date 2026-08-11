@@ -10,7 +10,6 @@ import { replaceRoot } from '../navigation/rootNavigation';
 import {
   openAccessibilitySettings,
   openAppInfoSettings,
-  openOverlaySettings,
   requestBatteryOptimizationExemption,
   needsRestrictedSettingsUnlock,
 } from '../services/permissions';
@@ -20,7 +19,7 @@ const STEPS = [
     id: 'accessibility',
     num: '01',
     title: 'Accessibility Service',
-    description: 'Lets Super Ridex detect and tap the Accept button inside Ola, Uber, and other driver apps. This is the core permission.',
+    description: 'Lets Super Ridex detect and tap the Accept button inside the Rapido Captain app. This is the core permission.',
     instruction: null, // custom UI below for Android 13+
     action: openAccessibilitySettings,
     actionLabel: 'Open Accessibility Settings',
@@ -29,20 +28,8 @@ const STEPS = [
     accentGlow: colors.purpleGlow,
   },
   {
-    id: 'overlay',
-    num: '02',
-    title: 'Display Over Other Apps',
-    description: 'Shows a floating status indicator while you\'re inside driver apps confirming auto-clicker is running.',
-    instruction: 'Settings → Apps → SUPER RIDEX → Display over other apps → Allow',
-    action: openOverlaySettings,
-    actionLabel: 'Open Overlay Settings',
-    accentColor: colors.blue,
-    accentBorder: colors.borderBlue,
-    accentGlow: colors.blueGlow,
-  },
-  {
     id: 'battery',
-    num: '03',
+    num: '02',
     title: 'Battery Optimization Exemption',
     description: 'Prevents Android from killing the service. Without this, auto-accept stops when the screen turns off.',
     instruction: 'Tap the button below — select "Don\'t optimize" in the system dialog.',
@@ -56,7 +43,7 @@ const STEPS = [
 
 export default function PermissionsSetupScreen({ navigation }) {
   const { status, check } = usePermissions();
-  const allDone = status.accessibility && status.overlay && status.battery;
+  const allDone = status.accessibility && status.battery;
 
   return (
     <Screen>
@@ -68,7 +55,7 @@ export default function PermissionsSetupScreen({ navigation }) {
         </View>
         <View style={styles.headerText}>
           <Text style={styles.headerTitle}>Setup Required</Text>
-          <Text style={styles.headerSub}>Grant 3 permissions to enable auto-accept</Text>
+          <Text style={styles.headerSub}>Grant 2 permissions to enable auto-accept</Text>
         </View>
       </View>
 

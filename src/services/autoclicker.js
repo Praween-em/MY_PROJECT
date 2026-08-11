@@ -28,6 +28,10 @@ export function getServiceStatus() {
   return AutoClickerModule?.getServiceStatus() ?? unavailable();
 }
 
+export function getServiceHealth() {
+  return AutoClickerModule?.getServiceHealth() ?? unavailable();
+}
+
 export function setMinPrice(price) {
   return AutoClickerModule?.setMinPrice(price) ?? unavailable();
 }
@@ -48,13 +52,13 @@ export function setMonitoredPackages(packages) {
   return AutoClickerModule?.setMonitoredPackages(packages) ?? unavailable();
 }
 
-export function saveSettings({ enabled, minPrice, delayMs, monitoredPackages, nuclearMode }) {
+export function saveSettings({ enabled, delayMs, monitoredPackages, nuclearMode }) {
   if (!AutoClickerModule) return unavailable();
   const nuclear = nuclearMode !== false;
+  // minPrice omitted — UI removed; native getMinPrice() always returns 0
   return Promise.all([
     AutoClickerModule.setServiceEnabled(!!enabled),
     AutoClickerModule.setNuclearMode(nuclear),
-    AutoClickerModule.setMinPrice(minPrice ?? 0),
     // Nuclear always 0; Standard can use a small delay if set
     AutoClickerModule.setDelayMs(nuclear ? 0 : (delayMs ?? 0)),
     AutoClickerModule.setMonitoredPackages(monitoredPackages),
@@ -67,20 +71,20 @@ export function onRideAccepted(callback) {
   return () => sub.remove();
 }
 
-/** Driver app package ids (not passenger apps). */
+/** Rapido Captain / driver app package ids. */
 export const APP_PACKAGES = {
   rapido: 'com.rapido.rider',
-  rideAndhra: 'com.rideandhra.driverapp',
-  ola: 'com.olacabs.driver',
-  uber: 'com.ubercab.driver',
+  captain: 'com.rapido.captain',
+  driver: 'com.rapido.driver',
 };
 
 export function packageLabel(packageName) {
   switch (packageName) {
-    case APP_PACKAGES.rapido: return 'Rapido';
-    case APP_PACKAGES.rideAndhra: return 'RideAndhra';
-    case APP_PACKAGES.ola: return 'Ola';
-    case APP_PACKAGES.uber: return 'Uber';
-    default: return packageName?.split('.').pop() || 'App';
+    case APP_PACKAGES.rapido:
+    case APP_PACKAGES.captain:
+    case APP_PACKAGES.driver:
+      return 'Rapido';
+    default:
+      return packageName?.split('.').pop() || 'App';
   }
 }

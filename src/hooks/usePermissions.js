@@ -11,7 +11,6 @@ import { getAllPermissionsStatus } from '../services/permissions';
 const INITIAL = {
   accessibility: false,
   notificationListener: false,
-  overlay: false,
   battery: false,
 };
 
@@ -36,7 +35,7 @@ export function usePermissions() {
   }, [check]);
 
   const allGranted =
-    status.accessibility && status.notificationListener && status.overlay && status.battery;
+    status.accessibility && status.notificationListener && status.battery;
 
   return { status, loading, check, allGranted };
 }

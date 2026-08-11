@@ -51,14 +51,9 @@ public final class AutoClickerConfig {
   private static volatile Context appContext;
 
   static {
-    // MeClicker targets + existing Playnix extras
     monitoredPackages.add("com.rapido.rider");
     monitoredPackages.add("com.rapido.captain");
     monitoredPackages.add("com.rapido.driver");
-    monitoredPackages.add("com.olacabs.oladriver");
-    monitoredPackages.add("com.olacabs.driver");
-    monitoredPackages.add("com.rideandhra.driverapp");
-    monitoredPackages.add("com.ubercab.driver");
   }
 
   private AutoClickerConfig() {}
@@ -136,7 +131,42 @@ public final class AutoClickerConfig {
     if (p != null) p.edit().putBoolean("enabled", value).commit(); // commit — a11y must see it now
   }
 
+  /** In-memory only read — does not re-hit disk (safe after setEnabled / broadcast). */
+  public static boolean peekEnabled() {
+    return enabled.get();
+  }
+
+  public static boolean peekNuclearMode() {
+    return nuclearMode.get();
+  }
+
+  /**
+   * Apply toggle from UI→:engine broadcast. Also writes this process's prefs cache
+   * so later {@link #syncCriticalFromDisk} does not revert to a stale false.
+   */
+  public static void applyEnabledFromBroadcast(boolean value) {
+    enabled.set(value);
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit().putBoolean("enabled", value).commit();
+    } else if (appContext != null) {
+      appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+          .edit().putBoolean("enabled", value).commit();
+      prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+  }
+
+  public static void applyNuclearFromBroadcast(boolean value) {
+    nuclearMode.set(value);
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit().putBoolean("nuclear_mode", value).commit();
+    }
+  }
+
   private static volatile long lastDiskSyncUptimeMs = 0L;
+  /** After a config broadcast, skip disk overwrite briefly (multi-process prefs lag). */
+  private static volatile long broadcastProtectUntilMs = 0L;
 
   /**
    * Re-read enabled/min/nuclear from disk. Fixes ColorOS process reuse where
@@ -150,12 +180,18 @@ public final class AutoClickerConfig {
     SharedPreferences p = prefs;
     if (p == null) return;
     long now = android.os.SystemClock.uptimeMillis();
+    // Broadcast just applied truth — don't let stale process-local prefs flip it back OFF
+    if (now < broadcastProtectUntilMs) return;
     if (now - lastDiskSyncUptimeMs < 400L) return;
     lastDiskSyncUptimeMs = now;
     enabled.set(p.getBoolean("enabled", false));
     nuclearMode.set(p.getBoolean("nuclear_mode", true));
-    minPrice.set(Math.max(0, p.getInt("min_price", 0)));
-    delayMs.set(Math.max(0, p.getInt("delay_ms", 0)));
+    // min_price / delay_ms skipped — min-fare UI removed; delay unused by race engine
+  }
+
+  public static void markBroadcastApplied() {
+    broadcastProtectUntilMs = android.os.SystemClock.uptimeMillis() + 5000L;
+    lastDiskSyncUptimeMs = 0L;
   }
 
   public static boolean isNuclearMode() {
@@ -166,7 +202,7 @@ public final class AutoClickerConfig {
   public static void setNuclearMode(boolean value) {
     nuclearMode.set(value);
     SharedPreferences p = prefs;
-    if (p != null) p.edit().putBoolean("nuclear_mode", value).apply();
+    if (p != null) p.edit().putBoolean("nuclear_mode", value).commit();
   }
 
   public static boolean isContinuousForegroundTap() {
@@ -181,8 +217,8 @@ public final class AutoClickerConfig {
   }
 
   public static int getMinPrice() {
-    syncCriticalFromDisk();
-    return minPrice.get();
+    // Min-fare UI removed — always accept any fare
+    return 0;
   }
 
   public static void setMinPrice(int value) {
@@ -237,7 +273,9 @@ public final class AutoClickerConfig {
 
   public static boolean isPackageMonitored(String packageName) {
     if (packageName == null) return false;
-    return monitoredPackages.contains(packageName);
+    if (monitoredPackages.contains(packageName)) return true;
+    // Always treat Rapido as monitored even if prefs were trimmed
+    return isRapidoPackage(packageName);
   }
 
   public static boolean isRapidoPackage(String packageName) {
@@ -248,14 +286,6 @@ public final class AutoClickerConfig {
     return packageName.equals("com.rapido.rider")
         || packageName.equals("com.rapido.captain")
         || packageName.equals("com.rapido.driver");
-  }
-
-  public static boolean isOlaPackage(String packageName) {
-    if (packageName == null) return false;
-    return packageName.equals("com.olacabs.oladriver")
-        || packageName.equals("com.olacabs.driver")
-        || packageName.contains("oladriver")
-        || packageName.contains("olacabs");
   }
 
   public static void setMonitoredPackages(Set<String> packages) {

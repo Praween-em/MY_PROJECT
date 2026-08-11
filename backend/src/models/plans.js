@@ -4,7 +4,7 @@
 
 const { query } = require('../config/db');
 
-const ALLOWED_PLAN_IDS = new Set(['monthly', 'quarterly']);
+const ALLOWED_PLAN_IDS = new Set(['trial', 'monthly', 'quarterly']);
 
 function formatInr(paise) {
   const rupees = paise / 100;

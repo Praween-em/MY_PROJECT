@@ -1,8 +1,10 @@
 package com.rapido.tap;
 
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
@@ -28,15 +30,51 @@ import java.util.Set;
 public class AutoClickerModule extends ReactContextBaseJavaModule {
 
   private static final String MODULE_NAME = "AutoClickerModule";
+  /** Cross-process accept events from `:engine` → UI / JS. */
+  public static final String ACTION_RIDE_ACCEPTED = "com.rapido.tap.ACTION_RIDE_ACCEPTED";
+  /** UI → `:engine` Auto-accept / nuclear toggle (sInstance is null in UI process). */
+  public static final String ACTION_CONFIG_CHANGED = "com.rapido.tap.ACTION_CONFIG_CHANGED";
   /** Not in all SDK stubs — use string action (API 33+) */
   private static final String ACTION_ACCESSIBILITY_DETAILS_SETTINGS =
       "android.settings.ACCESSIBILITY_DETAILS_SETTINGS";
   private static ReactApplicationContext reactContext;
+  private BroadcastReceiver rideAcceptedBridge;
 
   public AutoClickerModule(ReactApplicationContext context) {
     super(context);
     reactContext = context;
     AutoClickerConfig.init(context);
+    registerRideAcceptedBridge(context);
+  }
+
+  /** UI process: forward accepts from `:engine` into JS. */
+  private void registerRideAcceptedBridge(ReactApplicationContext context) {
+    if (rideAcceptedBridge != null) return;
+    rideAcceptedBridge = new BroadcastReceiver() {
+      @Override
+      public void onReceive(Context ctx, Intent intent) {
+        if (intent == null || reactContext == null || !reactContext.hasActiveReactInstance()) {
+          return;
+        }
+        emitToJs(
+            intent.getStringExtra("packageName"),
+            intent.getIntExtra("price", 0),
+            intent.getStringExtra("label"),
+            intent.getIntExtra("latencyMs", -1),
+            intent.getStringExtra("mode")
+        );
+      }
+    };
+    IntentFilter filter = new IntentFilter(ACTION_RIDE_ACCEPTED);
+    try {
+      if (Build.VERSION.SDK_INT >= 33) {
+        context.registerReceiver(rideAcceptedBridge, filter, Context.RECEIVER_NOT_EXPORTED);
+      } else {
+        context.registerReceiver(rideAcceptedBridge, filter);
+      }
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "ride bridge register failed: " + e.getMessage());
+    }
   }
 
   @Override
@@ -139,13 +177,31 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void setServiceEnabled(boolean enabled, Promise promise) {
-    boolean prev = AutoClickerConfig.isEnabled();
+    boolean prev = AutoClickerConfig.peekEnabled();
     AutoClickerConfig.setEnabled(enabled);
+    broadcastConfigChanged(getReactApplicationContext());
     AutoClickerService.onConfigChanged();
     if (prev != enabled) {
       android.util.Log.i("AutoClickerModule", "setServiceEnabled " + prev + "→" + enabled);
     }
     promise.resolve(enabled);
+  }
+
+  /** Push master/nuclear into `:engine` — required because a11y sInstance lives there. */
+  static void broadcastConfigChanged(Context ctx) {
+    if (ctx == null) return;
+    try {
+      Intent i = new Intent(ACTION_CONFIG_CHANGED);
+      i.setPackage(ctx.getPackageName());
+      i.putExtra("enabled", AutoClickerConfig.peekEnabled());
+      i.putExtra("nuclear_mode", AutoClickerConfig.peekNuclearMode());
+      ctx.sendBroadcast(i);
+      android.util.Log.i(MODULE_NAME, "CONFIG_BROADCAST enabled="
+          + AutoClickerConfig.peekEnabled()
+          + " nuclear=" + AutoClickerConfig.peekNuclearMode());
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "CONFIG_BROADCAST fail: " + e.getMessage());
+    }
   }
 
   @ReactMethod
@@ -172,6 +228,7 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     if (enabled) {
       AutoClickerConfig.setDelayMs(0);
     }
+    broadcastConfigChanged(getReactApplicationContext());
     AutoClickerService.onConfigChanged();
     promise.resolve(enabled);
   }
@@ -205,6 +262,8 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     map.putBoolean("continuousForegroundTap", AutoClickerConfig.isContinuousForegroundTap());
     map.putInt("minPrice", AutoClickerConfig.getMinPrice());
     map.putInt("delayMs", AutoClickerConfig.getDelayMs());
+    // Keep `:engine` notification / race flags aligned with UI process prefs
+    broadcastConfigChanged(getReactApplicationContext());
     map.putBoolean("accessibilityEnabled", isOurAccessibilityServiceEnabled(getReactApplicationContext()));
     map.putBoolean(
         "notificationListenerEnabled",
@@ -216,6 +275,49 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       pkgs.pushString(pkg);
     }
     map.putArray("monitoredPackages", pkgs);
+    promise.resolve(map);
+  }
+
+  /** OEM + Accept-engine health for Service Reliability screen. */
+  @ReactMethod
+  public void getServiceHealth(Promise promise) {
+    Context ctx = getReactApplicationContext();
+    ServiceHealth.init(ctx);
+    boolean a11y = isOurAccessibilityServiceEnabled(ctx);
+    boolean master = AutoClickerConfig.isEnabled();
+    boolean batteryOk = false;
+    try {
+      PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+      if (pm != null) {
+        batteryOk = pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
+      }
+    } catch (Exception ignored) {
+    }
+    boolean nlsOk = isOurNotificationListenerEnabled(ctx);
+    String code = ServiceHealth.diagnose(a11y, master, nlsOk);
+    WritableMap map = Arguments.createMap();
+    map.putBoolean("accessibilityEnabled", a11y);
+    map.putBoolean("serviceConnected", ServiceHealth.serviceConnected);
+    map.putBoolean("masterEnabled", master);
+    map.putBoolean("batteryOptimizationOk", batteryOk);
+    map.putBoolean("notificationListenerEnabled", nlsOk);
+    map.putString("oemId", ServiceHealth.detectOemId());
+    map.putString("oemLabel", ServiceHealth.detectOemLabel());
+    map.putString("manufacturer", Build.MANUFACTURER != null ? Build.MANUFACTURER : "");
+    map.putString("model", Build.MODEL != null ? Build.MODEL : "");
+    map.putString("phase", ServiceHealth.lastPhase);
+    map.putString("lastTargetPkg", ServiceHealth.lastTargetPkg);
+    map.putString("diagnoseCode", code);
+    map.putString("diagnoseMessage", ServiceHealth.lastDiagnoseMessage);
+    map.putDouble("lastA11yEventAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastA11yEventMs));
+    map.putDouble("lastTargetAppAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastTargetAppEventMs));
+    map.putDouble("lastRideAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastRideDetectedMs));
+    map.putDouble("lastAcceptAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastAcceptDetectedMs));
+    map.putDouble("lastClickAttemptAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastClickAttemptMs));
+    map.putDouble("lastClickSuccessAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastClickSuccessMs));
+    // Auto-start / OEM background flags are not reliably readable
+    map.putString("autostartStatus", "manual");
+    map.putString("backgroundStatus", "manual");
     promise.resolve(map);
   }
 
@@ -239,19 +341,43 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       int latencyMs,
       String mode
   ) {
-    if (reactContext == null || !reactContext.hasActiveReactInstance()) {
-      android.util.Log.w("AutoClickerModule", "emitRideAccepted dropped — no React context");
-      return;
+    // Always broadcast — Accept engine may run in `:engine` after swipe-kill of UI
+    Context ctx = reactContext != null ? reactContext : AutoClickerConfig.getAppContext();
+    if (ctx != null) {
+      try {
+        Intent i = new Intent(ACTION_RIDE_ACCEPTED);
+        i.setPackage(ctx.getPackageName());
+        i.putExtra("packageName", packageName != null ? packageName : "");
+        i.putExtra("price", price);
+        i.putExtra("label", label != null ? label : "");
+        i.putExtra("latencyMs", latencyMs);
+        i.putExtra("mode", mode != null ? mode : "Standard");
+        ctx.sendBroadcast(i);
+      } catch (Exception e) {
+        android.util.Log.w("AutoClickerModule", "broadcast accept failed: " + e.getMessage());
+      }
     }
+    // Same-process fast path (UI still alive in this process)
+    if (reactContext != null && reactContext.hasActiveReactInstance()) {
+      emitToJs(packageName, price, label, latencyMs, mode);
+    }
+  }
 
+  private static void emitToJs(
+      String packageName,
+      int price,
+      String label,
+      int latencyMs,
+      String mode
+  ) {
+    if (reactContext == null || !reactContext.hasActiveReactInstance()) return;
     WritableMap params = Arguments.createMap();
-    params.putString("packageName", packageName);
+    params.putString("packageName", packageName != null ? packageName : "");
     params.putInt("price", price);
     params.putString("label", label != null ? label : "");
     params.putInt("latencyMs", latencyMs);
     params.putString("mode", mode != null ? mode : "Standard");
     params.putDouble("timestamp", System.currentTimeMillis());
-
     reactContext
         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
         .emit("onRideAccepted", params);

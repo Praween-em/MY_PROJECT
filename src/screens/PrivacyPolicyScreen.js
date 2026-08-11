@@ -114,7 +114,7 @@ export default function PrivacyPolicyScreen({ navigation }) {
 
         <Section title="6. Your Choices">
           <P>
-            You may revoke Accessibility Service, overlay, notification, and
+            You may revoke Accessibility Service, notification, and
             related permissions at any time in Android Settings. You may also
             log out, clear local history in the App, or contact us to request
             account-related assistance where applicable.
