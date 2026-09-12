@@ -1,9 +1,15 @@
-# Native Android (SUPER RIDEX)
+# Native Android (Ridio)
 
-Source of truth for the accessibility / notification race engine:
+Source of truth for the Accept engine:
 
-- **`native-android/src/`** — Java sources (`package com.rapido.tap`)
+- **`native-android/src/`** — Java sources (`package com.ridio.app`)
 - Synced into `android/` on every Expo prebuild by `plugins/withAutoClicker.js`
+
+## How clicks work
+
+1. **Rapido Captain** — Accessibility `ACTION_CLICK` on Accept, 0ms after the ride alert. No Shizuku.
+2. **Ola Driver** — Accessibility finds Accept; **Shizuku** injects the tap after the 5s unlock.
+3. **Notification access** arms the race as soon as a ride heads-up appears.
 
 ## Fresh Android build
 
@@ -23,7 +29,9 @@ Install the phone ABI APK from:
 
 ## Enable auto-accept
 
-1. Install the new APK (`com.rapido.tap` — uninstall any old `com.playnix.app` build first)
-2. **Settings → Accessibility → Installed services → SUPER RIDEX → Enable**
-3. **Settings → Notification access → SUPER RIDEX Alerts → ON** (recommended)
-4. Open SUPER RIDEX → turn Auto-accept ON
+1. Install the new APK (`com.ridio.app`)
+2. **Settings → Accessibility → Installed services → Ridio → Enable** (required for Rapido)
+3. **Settings → Notification access → Ridio Alerts → ON** (recommended)
+4. Open Ridio → turn Auto-accept ON — Rapido taps immediately, no Shizuku
+5. **Ola only:** Install **Shizuku** from the Play Store → Start (Wireless debugging) → Permissions Setup → grant Shizuku
+6. Open **Rapido Captain** or **Ola Driver** and go online

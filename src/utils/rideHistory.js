@@ -92,10 +92,18 @@ export async function addRideAccepted(event) {
   if (isDupe) return prev[0];
 
   const next = [ride, ...prev].slice(0, MAX);
-  await AsyncStorage.setItem(KEY, JSON.stringify(next));
+  try {
+    await AsyncStorage.setItem(KEY, JSON.stringify(next));
+  } catch {
+    /* history write failed — still return the ride */
+  }
   return ride;
 }
 
 export async function clearRideHistory() {
-  await AsyncStorage.removeItem(KEY);
+  try {
+    await AsyncStorage.removeItem(KEY);
+  } catch {
+    /* ignore */
+  }
 }

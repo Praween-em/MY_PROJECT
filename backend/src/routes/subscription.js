@@ -5,10 +5,8 @@
 const express = require('express');
 const router = express.Router();
 const { requirePhone, optionalDevice, requireDevice } = require('../middleware/auth');
-const { createOrder } = require('../services/razorpay');
-const { activateFromCheckout } = require('../services/paymentActivation');
-const { getPlanById, listPublicPlans } = require('../models/plans');
-const { ensureUser, getUserByPhone } = require('../models/user');
+const { listPublicPlans } = require('../models/plans');
+const { getUserByPhone } = require('../models/user');
 const { assertDeviceAllowed, checkEntitlement, DeviceLimitError } = require('../models/device');
 const { isSubscriptionActive } = require('../models/mapUser');
 
@@ -20,63 +18,6 @@ router.get('/plans', async (_req, res) => {
   } catch (err) {
     console.error('GET /subscription/plans:', err);
     res.status(500).json({ message: err.message });
-  }
-});
-
-router.post('/create-order', requirePhone, async (req, res) => {
-  try {
-    const { planId } = req.body;
-    const plan = await getPlanById(planId, { enabledOnly: true });
-    if (!plan) {
-      return res.status(400).json({ message: 'Invalid or disabled planId' });
-    }
-
-    const order = await createOrder(planId, req.phone);
-
-    try {
-      await ensureUser(req.phone);
-    } catch (dbErr) {
-      console.error('ensureUser after create-order:', dbErr);
-      return res.status(503).json({
-        message: 'Order created but user database unavailable. Set DATABASE_URL and run migrations.',
-        orderId: order.orderId,
-        amount: order.amount,
-        currency: order.currency,
-      });
-    }
-
-    res.json(order);
-  } catch (err) {
-    console.error('create-order error:', err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-router.post('/verify-payment', requirePhone, async (req, res) => {
-  try {
-    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, planId } = req.body;
-
-    const { subscriptionEnd, referralResult, alreadyProcessed, phone, planId: resolvedPlan } =
-      await activateFromCheckout({
-        razorpayOrderId,
-        razorpayPaymentId,
-        razorpaySignature,
-        phone: req.phone,
-        planId,
-      });
-
-    console.log(
-      `[payment] verify-payment ${alreadyProcessed ? 'idempotent' : 'activated'} ` +
-      `phone=${phone} plan=${resolvedPlan} payment=${razorpayPaymentId}`
-    );
-
-    res.json({ success: true, subscriptionEnd, referralResult, alreadyProcessed });
-  } catch (err) {
-    console.error('verify-payment error:', err.message || err);
-    const status =
-      err.status ||
-      (err.code === 'INVALID_SIGNATURE' || err.message === 'Invalid payment signature' ? 400 : 500);
-    res.status(status).json({ message: err.message, code: err.code });
   }
 });
 

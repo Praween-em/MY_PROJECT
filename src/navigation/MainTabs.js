@@ -13,7 +13,7 @@ const Tab = createBottomTabNavigator();
 export default function MainTabs() {
   const insets = useSafeAreaInsets();
   const tabBarPaddingBottom = Platform.OS === 'android'
-    ? Math.max(insets.bottom, 28)
+    ? Math.max(insets.bottom, 16)
     : Math.max(insets.bottom, 8);
 
   return (
@@ -26,17 +26,31 @@ export default function MainTabs() {
         freezeOnBlur: true,
         tabBarStyle: {
           backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          tabBarActiveTintColor: colors.purpleBright,
-          tabBarInactiveTintColor: colors.icyMuted,
-          borderTopWidth: 1,
-          height: 54 + tabBarPaddingBottom,
+          borderTopWidth: 0,
+          marginHorizontal: 14,
+          marginBottom: 8,
+          borderRadius: 26,
+          height: 62 + tabBarPaddingBottom,
           paddingBottom: tabBarPaddingBottom,
-          paddingTop: 6,
+          paddingTop: 8,
+          paddingHorizontal: 8,
+          borderWidth: 1,
+          borderColor: colors.border,
+          elevation: 12,
+          shadowColor: colors.black,
+          shadowOpacity: 0.28,
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: 8 },
         },
-        tabBarActiveTintColor: colors.purpleBright,
+        tabBarActiveTintColor: colors.background,
         tabBarInactiveTintColor: colors.icyMuted,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
+        tabBarActiveBackgroundColor: colors.purple,
+        tabBarItemStyle: {
+          borderRadius: 18,
+          marginHorizontal: 3,
+          overflow: 'hidden',
+        },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '800', letterSpacing: 0.3 },
       }}
     >
       <Tab.Screen
@@ -45,7 +59,7 @@ export default function MainTabs() {
         options={{
           tabBarLabel: 'Home',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={20} color={color} />
           ),
         }}
       />
@@ -55,7 +69,7 @@ export default function MainTabs() {
         options={{
           tabBarLabel: 'Profile',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'person' : 'person-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'person' : 'person-outline'} size={20} color={color} />
           ),
         }}
       />
@@ -65,7 +79,7 @@ export default function MainTabs() {
         options={{
           tabBarLabel: 'Settings',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'settings' : 'settings-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'settings' : 'settings-outline'} size={20} color={color} />
           ),
         }}
       />

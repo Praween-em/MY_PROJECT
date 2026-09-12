@@ -84,7 +84,7 @@ Tabs after change: **Home · Profile · Settings** (History gone).
 ## What was *not* changed by the UI pass alone
 
 - Accept race engine gesture / VERIFY / hunt timings (until the speed follow-up above)
-- OTP / Razorpay / subscription API flow
+- OTP / subscription API flow (payment contact later changed to Telegram)
 - Accessibility / notification permissions (NLS still required to arm)
 - Backend / admin panel
 - Earlier experimental work (death alerts, splash hacks, a11y yield-on-kill) — discarded by hard reset

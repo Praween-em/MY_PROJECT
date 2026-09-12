@@ -1,23 +1,23 @@
 {
   "expo": {
-    "name": "SUPER RIDEX",
-    "slug": "superridex",
+    "name": "AG rider",
+    "slug": "ridio",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/AppIcons/playstore.png",
-    "userInterfaceStyle": "light",
+    "icon": "./assets/app_icon.png",
+    "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./assets/splash-blank.png",
+      "image": "./assets/splash-ag-rider.png",
       "resizeMode": "contain",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#041109"
     },
     "plugins": [
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#000000",
-          "image": "./assets/splash-blank.png",
-          "imageWidth": 48,
+          "backgroundColor": "#041109",
+          "image": "./assets/splash-ag-rider.png",
+          "imageWidth": 200,
           "resizeMode": "contain"
         }
       ],
@@ -25,14 +25,14 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.rapido.tap",
-      "icon": "./assets/AppIcons/appstore.png"
+      "bundleIdentifier": "com.ridio.app",
+      "icon": "./assets/app_icon.png"
     },
     "android": {
-      "package": "com.rapido.tap",
-      "icon": "./assets/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png",
+      "package": "com.ridio.app",
+      "icon": "./assets/app_icon.png",
       "adaptiveIcon": {
-        "backgroundColor": "#000000",
+        "backgroundColor": "#041109",
         "foregroundImage": "./assets/AppIcons/android/adaptive-foreground.png"
       },
       "permissions": [
@@ -43,11 +43,12 @@
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "android.permission.WAKE_LOCK",
         "android.permission.INTERNET",
-        "android.permission.ACCESS_NETWORK_STATE"
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "web": {
-      "favicon": "./assets/AppIcons/playstore.png"
+      "favicon": "./assets/app_icon.png"
     }
   }
 }

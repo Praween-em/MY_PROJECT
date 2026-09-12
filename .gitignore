@@ -32,6 +32,7 @@ yarn-error.*
 
 # local env files (never commit secrets)
 .env
+src/config/generatedEnv.js
 .env.dev
 .env.prod
 backend/.env

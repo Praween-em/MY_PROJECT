@@ -1,23 +1,22 @@
 {
   "name": "superridex-backend",
   "version": "2.0.0",
-  "description": "SUPER RIDEX backend — Express + PostgreSQL + Razorpay + Admin panel",
+  "description": "AG rider backend — Express + PostgreSQL + Telegram payment contact + Admin panel",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "migrate": "node scripts/migrate.js",
     "seed:admin": "node scripts/seed-admin.js",
-    "test": "node src/services/referral.verify.js && node src/services/razorpay.verify.js",
+    "test": "node src/services/referral.verify.js && node src/models/paymentContact.verify.js",
     "test:referral": "node src/services/referral.verify.js",
-    "test:razorpay": "node src/services/razorpay.verify.js"
+    "test:payment-contact": "node src/models/paymentContact.verify.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "pg": "^8.13.1",
-    "razorpay": "^2.9.2"
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

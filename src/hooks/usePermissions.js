@@ -12,6 +12,12 @@ const INITIAL = {
   accessibility: false,
   notificationListener: false,
   battery: false,
+  overlay: false,
+  shizuku: false,
+  shizukuInstalled: false,
+  shizukuRunning: false,
+  shizukuPermission: false,
+  shizukuState: 'missing',
 };
 
 export function usePermissions() {
@@ -19,9 +25,14 @@ export function usePermissions() {
   const [loading, setLoading] = useState(true);
 
   const check = useCallback(async () => {
-    const result = await getAllPermissionsStatus();
-    setStatus(result);
-    setLoading(false);
+    try {
+      const result = await getAllPermissionsStatus();
+      setStatus(result);
+    } catch {
+      setStatus(INITIAL);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -35,7 +46,7 @@ export function usePermissions() {
   }, [check]);
 
   const allGranted =
-    status.accessibility && status.notificationListener && status.battery;
+    status.accessibility && status.battery;
 
   return { status, loading, check, allGranted };
 }

@@ -1,10 +1,11 @@
-package com.rapido.tap;
+package com.ridio.app;
 
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
@@ -12,6 +13,8 @@ import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.accessibility.AccessibilityManager;
 import android.accessibilityservice.AccessibilityServiceInfo;
+
+import rikka.shizuku.Shizuku;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -31,20 +34,37 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
 
   private static final String MODULE_NAME = "AutoClickerModule";
   /** Cross-process accept events from `:engine` → UI / JS. */
-  public static final String ACTION_RIDE_ACCEPTED = "com.rapido.tap.ACTION_RIDE_ACCEPTED";
+  public static final String ACTION_RIDE_ACCEPTED = "com.ridio.app.ACTION_RIDE_ACCEPTED";
   /** UI → `:engine` Auto-accept / nuclear toggle (sInstance is null in UI process). */
-  public static final String ACTION_CONFIG_CHANGED = "com.rapido.tap.ACTION_CONFIG_CHANGED";
+  public static final String ACTION_CONFIG_CHANGED = "com.ridio.app.ACTION_CONFIG_CHANGED";
   /** Not in all SDK stubs — use string action (API 33+) */
   private static final String ACTION_ACCESSIBILITY_DETAILS_SETTINGS =
       "android.settings.ACCESSIBILITY_DETAILS_SETTINGS";
+  private static final int SHIZUKU_PERMISSION_CODE = 7143;
   private static ReactApplicationContext reactContext;
   private BroadcastReceiver rideAcceptedBridge;
+  private Promise pendingShizukuPromise;
+  private final Shizuku.OnRequestPermissionResultListener shizukuPermissionListener =
+      (requestCode, grantResult) -> {
+        if (requestCode != SHIZUKU_PERMISSION_CODE) return;
+        Promise p = pendingShizukuPromise;
+        pendingShizukuPromise = null;
+        if (p != null) {
+          p.resolve(grantResult == PackageManager.PERMISSION_GRANTED);
+        }
+      };
 
   public AutoClickerModule(ReactApplicationContext context) {
     super(context);
     reactContext = context;
     AutoClickerConfig.init(context);
     registerRideAcceptedBridge(context);
+    try {
+      Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
+      ShizukuInput.attach(context);
+    } catch (Throwable t) {
+      android.util.Log.w(MODULE_NAME, "Shizuku init: " + t.getMessage());
+    }
   }
 
   /** UI process: forward accepts from `:engine` into JS. */
@@ -86,7 +106,11 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void isAccessibilityEnabled(Promise promise) {
-    promise.resolve(isOurAccessibilityServiceEnabled(getReactApplicationContext()));
+    try {
+      promise.resolve(isOurAccessibilityServiceEnabled(getReactApplicationContext()));
+    } catch (Throwable t) {
+      promise.resolve(false);
+    }
   }
 
   @ReactMethod
@@ -107,9 +131,13 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
         // fall through to generic accessibility settings
       }
     }
-    Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    ctx.startActivity(intent);
+    try {
+      Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(intent);
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "openAccessibilitySettings: " + e.getMessage());
+    }
   }
 
   /**
@@ -118,73 +146,192 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
    */
   @ReactMethod
   public void openAppInfoSettings() {
-    Context ctx = getReactApplicationContext();
-    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-    intent.setData(Uri.parse("package:" + ctx.getPackageName()));
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    ctx.startActivity(intent);
+    try {
+      Context ctx = getReactApplicationContext();
+      Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+      intent.setData(Uri.parse("package:" + ctx.getPackageName()));
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(intent);
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "openAppInfoSettings: " + e.getMessage());
+    }
   }
 
   @ReactMethod
   public void isNotificationListenerEnabled(Promise promise) {
-    promise.resolve(isOurNotificationListenerEnabled(getReactApplicationContext()));
+    try {
+      promise.resolve(isOurNotificationListenerEnabled(getReactApplicationContext()));
+    } catch (Throwable t) {
+      promise.resolve(false);
+    }
   }
 
   @ReactMethod
   public void openNotificationListenerSettings() {
-    Context ctx = getReactApplicationContext();
-    Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    ctx.startActivity(intent);
+    try {
+      Context ctx = getReactApplicationContext();
+      Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(intent);
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "openNotificationListenerSettings: " + e.getMessage());
+    }
   }
 
   @ReactMethod
   public void isOverlayPermissionGranted(Promise promise) {
-    promise.resolve(Settings.canDrawOverlays(getReactApplicationContext()));
+    try {
+      promise.resolve(Settings.canDrawOverlays(getReactApplicationContext()));
+    } catch (Throwable t) {
+      promise.resolve(false);
+    }
   }
 
   @ReactMethod
   public void openOverlaySettings() {
-    Context ctx = getReactApplicationContext();
-    Intent intent = new Intent(
-        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-        Uri.parse("package:" + ctx.getPackageName())
-    );
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    ctx.startActivity(intent);
+    try {
+      Context ctx = getReactApplicationContext();
+      Intent intent = new Intent(
+          Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+          Uri.parse("package:" + ctx.getPackageName())
+      );
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(intent);
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "openOverlaySettings: " + e.getMessage());
+    }
   }
 
   @ReactMethod
   public void isBatteryOptimizationIgnored(Promise promise) {
-    PowerManager pm = (PowerManager) getReactApplicationContext().getSystemService(Context.POWER_SERVICE);
-    if (pm == null) {
+    try {
+      PowerManager pm = (PowerManager) getReactApplicationContext().getSystemService(Context.POWER_SERVICE);
+      if (pm == null) {
+        promise.resolve(false);
+        return;
+      }
+      promise.resolve(pm.isIgnoringBatteryOptimizations(getReactApplicationContext().getPackageName()));
+    } catch (Throwable t) {
       promise.resolve(false);
-      return;
     }
-    promise.resolve(pm.isIgnoringBatteryOptimizations(getReactApplicationContext().getPackageName()));
   }
 
   @ReactMethod
   public void openBatteryOptimizationSettings() {
+    try {
+      Context ctx = getReactApplicationContext();
+      Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+      intent.setData(Uri.parse("package:" + ctx.getPackageName()));
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(intent);
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "openBatteryOptimizationSettings: " + e.getMessage());
+    }
+  }
+
+  @ReactMethod
+  public void getShizukuStatus(Promise promise) {
+    try {
+      Context ctx = getReactApplicationContext();
+      WritableMap map = Arguments.createMap();
+      boolean installed = ShizukuInput.isInstalled(ctx);
+      boolean running = ShizukuInput.isRunning();
+      boolean permission = ShizukuInput.hasPermission();
+      map.putBoolean("installed", installed);
+      map.putBoolean("running", running);
+      map.putBoolean("permission", permission);
+      map.putBoolean("ready", ShizukuInput.isReady());
+      map.putString("state", ShizukuInput.state(ctx));
+      promise.resolve(map);
+    } catch (Throwable t) {
+      WritableMap map = Arguments.createMap();
+      map.putBoolean("installed", false);
+      map.putBoolean("running", false);
+      map.putBoolean("permission", false);
+      map.putBoolean("ready", false);
+      map.putString("state", "missing");
+      promise.resolve(map);
+    }
+  }
+
+  @ReactMethod
+  public void requestShizukuPermission(Promise promise) {
+    try {
+      ShizukuInput.attach(getReactApplicationContext());
+      if (!ShizukuInput.isRunning()) {
+        promise.resolve(false);
+        return;
+      }
+      if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+        promise.resolve(true);
+        return;
+      }
+      pendingShizukuPromise = promise;
+      Shizuku.requestPermission(SHIZUKU_PERMISSION_CODE);
+    } catch (Throwable t) {
+      promise.resolve(false);
+    }
+  }
+
+  @ReactMethod
+  public void openShizukuApp() {
     Context ctx = getReactApplicationContext();
-    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-    intent.setData(Uri.parse("package:" + ctx.getPackageName()));
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    ctx.startActivity(intent);
+    try {
+      Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(ShizukuInput.SHIZUKU_PACKAGE);
+      if (launch != null) {
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(launch);
+        return;
+      }
+    } catch (Exception ignored) {
+    }
+    openShizukuPlayStore();
+  }
+
+  @ReactMethod
+  public void openShizukuPlayStore() {
+    Context ctx = getReactApplicationContext();
+    try {
+      Intent market = new Intent(
+          Intent.ACTION_VIEW,
+          Uri.parse("market://details?id=" + ShizukuInput.SHIZUKU_PACKAGE)
+      );
+      market.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(market);
+    } catch (Exception e) {
+      try {
+        Intent web = new Intent(Intent.ACTION_VIEW, Uri.parse(ShizukuInput.PLAY_STORE_URL));
+        web.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(web);
+      } catch (Exception ignored) {
+      }
+    }
   }
 
   // ─── Service config ───────────────────────────────────────────────────────
 
   @ReactMethod
   public void setServiceEnabled(boolean enabled, Promise promise) {
-    boolean prev = AutoClickerConfig.peekEnabled();
-    AutoClickerConfig.setEnabled(enabled);
-    broadcastConfigChanged(getReactApplicationContext());
-    AutoClickerService.onConfigChanged();
-    if (prev != enabled) {
-      android.util.Log.i("AutoClickerModule", "setServiceEnabled " + prev + "→" + enabled);
+    try {
+      boolean prev = AutoClickerConfig.peekEnabled();
+      AutoClickerConfig.setEnabled(enabled);
+      broadcastConfigChanged(getReactApplicationContext());
+      AutoClickerService.onConfigChanged();
+      Context app = getReactApplicationContext();
+      if (enabled) {
+        EngineKeepAlive.ensureStarted(app);
+        RecentsGuard.ensureStarted(app);
+      } else {
+        EngineKeepAlive.stop(app);
+        RecentsGuard.stop(app);
+      }
+      if (prev != enabled) {
+        android.util.Log.i("AutoClickerModule", "setServiceEnabled " + prev + "→" + enabled);
+      }
+      promise.resolve(enabled);
+    } catch (Throwable t) {
+      promise.resolve(enabled);
     }
-    promise.resolve(enabled);
   }
 
   /** Push master/nuclear into `:engine` — required because a11y sInstance lives there. */
@@ -195,10 +342,14 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       i.setPackage(ctx.getPackageName());
       i.putExtra("enabled", AutoClickerConfig.peekEnabled());
       i.putExtra("nuclear_mode", AutoClickerConfig.peekNuclearMode());
+      i.putExtra("min_price", AutoClickerConfig.getMinPrice());
+      i.putExtra("max_pickup", AutoClickerConfig.getMaxPickup());
       ctx.sendBroadcast(i);
       android.util.Log.i(MODULE_NAME, "CONFIG_BROADCAST enabled="
           + AutoClickerConfig.peekEnabled()
-          + " nuclear=" + AutoClickerConfig.peekNuclearMode());
+          + " nuclear=" + AutoClickerConfig.peekNuclearMode()
+          + " min=" + AutoClickerConfig.getMinPrice()
+          + " maxPickup=" + AutoClickerConfig.getMaxPickup());
     } catch (Exception e) {
       android.util.Log.w(MODULE_NAME, "CONFIG_BROADCAST fail: " + e.getMessage());
     }
@@ -212,25 +363,31 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void setMinPrice(int price, Promise promise) {
     AutoClickerConfig.setMinPrice(price);
+    broadcastConfigChanged(getReactApplicationContext());
     promise.resolve(price);
   }
 
   @ReactMethod
+  public void setMaxPickup(double km, Promise promise) {
+    float v = (float) Math.max(0d, km);
+    AutoClickerConfig.setMaxPickup(v);
+    broadcastConfigChanged(getReactApplicationContext());
+    promise.resolve((double) v);
+  }
+
+  @ReactMethod
   public void setDelayMs(int delay, Promise promise) {
-    AutoClickerConfig.setDelayMs(delay);
-    promise.resolve(delay);
+    AutoClickerConfig.setDelayMs(0);
+    promise.resolve(0);
   }
 
   @ReactMethod
   public void setNuclearMode(boolean enabled, Promise promise) {
-    AutoClickerConfig.setNuclearMode(enabled);
-    // Nuclear always runs at 0ms delay
-    if (enabled) {
-      AutoClickerConfig.setDelayMs(0);
-    }
+    AutoClickerConfig.setNuclearMode(true);
+    AutoClickerConfig.setDelayMs(0);
     broadcastConfigChanged(getReactApplicationContext());
     AutoClickerService.onConfigChanged();
-    promise.resolve(enabled);
+    promise.resolve(true);
   }
 
   /** Continuous FG spray API — HARD OFF (MeClicker hunt→click→micro-burst only). */
@@ -243,82 +400,108 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void setMonitoredPackages(ReadableArray packages, Promise promise) {
-    Set<String> set = new HashSet<>();
-    for (int i = 0; i < packages.size(); i++) {
-      String pkg = packages.getString(i);
-      if (pkg != null && !pkg.isEmpty()) {
-        set.add(pkg);
+    try {
+      Set<String> set = new HashSet<>();
+      if (packages != null) {
+        for (int i = 0; i < packages.size(); i++) {
+          String pkg = packages.getString(i);
+          if (pkg != null && !pkg.isEmpty()) {
+            set.add(pkg);
+          }
+        }
       }
+      AutoClickerConfig.setMonitoredPackages(set);
+      promise.resolve(true);
+    } catch (Throwable t) {
+      promise.resolve(false);
     }
-    AutoClickerConfig.setMonitoredPackages(set);
-    promise.resolve(true);
   }
 
   @ReactMethod
   public void getServiceStatus(Promise promise) {
-    WritableMap map = Arguments.createMap();
-    map.putBoolean("enabled", AutoClickerConfig.isEnabled());
-    map.putBoolean("nuclearMode", AutoClickerConfig.isNuclearMode());
-    map.putBoolean("continuousForegroundTap", AutoClickerConfig.isContinuousForegroundTap());
-    map.putInt("minPrice", AutoClickerConfig.getMinPrice());
-    map.putInt("delayMs", AutoClickerConfig.getDelayMs());
-    // Keep `:engine` notification / race flags aligned with UI process prefs
-    broadcastConfigChanged(getReactApplicationContext());
-    map.putBoolean("accessibilityEnabled", isOurAccessibilityServiceEnabled(getReactApplicationContext()));
-    map.putBoolean(
-        "notificationListenerEnabled",
-        isOurNotificationListenerEnabled(getReactApplicationContext())
-    );
+    try {
+      WritableMap map = Arguments.createMap();
+      map.putBoolean("enabled", AutoClickerConfig.isEnabled());
+      map.putBoolean("nuclearMode", AutoClickerConfig.isNuclearMode());
+      map.putBoolean("continuousForegroundTap", AutoClickerConfig.isContinuousForegroundTap());
+      map.putInt("minPrice", AutoClickerConfig.getMinPrice());
+      map.putDouble("maxPickup", AutoClickerConfig.getMaxPickup());
+      map.putInt("delayMs", AutoClickerConfig.getDelayMs());
+      broadcastConfigChanged(getReactApplicationContext());
+      map.putBoolean("accessibilityEnabled", isOurAccessibilityServiceEnabled(getReactApplicationContext()));
+      map.putBoolean(
+          "notificationListenerEnabled",
+          isOurNotificationListenerEnabled(getReactApplicationContext())
+      );
+      map.putBoolean("shizukuInstalled", ShizukuInput.isInstalled(getReactApplicationContext()));
+      map.putBoolean("shizukuRunning", ShizukuInput.isRunning());
+      map.putBoolean("shizukuPermission", ShizukuInput.hasPermission());
+      map.putBoolean("shizukuReady", ShizukuInput.isReady());
 
-    WritableArray pkgs = Arguments.createArray();
-    for (String pkg : AutoClickerConfig.getMonitoredPackages()) {
-      pkgs.pushString(pkg);
+      WritableArray pkgs = Arguments.createArray();
+      for (String pkg : AutoClickerConfig.getMonitoredPackages()) {
+        pkgs.pushString(pkg);
+      }
+      map.putArray("monitoredPackages", pkgs);
+      promise.resolve(map);
+    } catch (Throwable t) {
+      WritableMap map = Arguments.createMap();
+      map.putBoolean("enabled", false);
+      map.putBoolean("nuclearMode", true);
+      map.putBoolean("accessibilityEnabled", false);
+      map.putBoolean("notificationListenerEnabled", false);
+      map.putBoolean("shizukuReady", false);
+      promise.resolve(map);
     }
-    map.putArray("monitoredPackages", pkgs);
-    promise.resolve(map);
   }
 
-  /** OEM + Accept-engine health for Service Reliability screen. */
+  /** Permission / OEM checklist for Service Reliability. No diagnose telemetry. */
   @ReactMethod
   public void getServiceHealth(Promise promise) {
-    Context ctx = getReactApplicationContext();
-    ServiceHealth.init(ctx);
-    boolean a11y = isOurAccessibilityServiceEnabled(ctx);
-    boolean master = AutoClickerConfig.isEnabled();
-    boolean batteryOk = false;
     try {
-      PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
-      if (pm != null) {
-        batteryOk = pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
+      Context ctx = getReactApplicationContext();
+      boolean a11y = isOurAccessibilityServiceEnabled(ctx);
+      boolean master = AutoClickerConfig.isEnabled();
+      boolean batteryOk = false;
+      try {
+        PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+        if (pm != null) {
+          batteryOk = pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
+        }
+      } catch (Exception ignored) {
       }
-    } catch (Exception ignored) {
+      boolean nlsOk = isOurNotificationListenerEnabled(ctx);
+      boolean shizukuReady = ShizukuInput.isReady();
+      WritableMap map = Arguments.createMap();
+      map.putBoolean("accessibilityEnabled", a11y);
+      map.putBoolean("serviceConnected", a11y);
+      map.putBoolean("masterEnabled", master);
+      map.putBoolean("batteryOptimizationOk", batteryOk);
+      map.putBoolean("notificationListenerEnabled", nlsOk);
+      map.putBoolean("shizukuInstalled", ShizukuInput.isInstalled(ctx));
+      map.putBoolean("shizukuRunning", ShizukuInput.isRunning());
+      map.putBoolean("shizukuPermission", ShizukuInput.hasPermission());
+      map.putBoolean("shizukuReady", shizukuReady);
+      map.putString("shizukuState", ShizukuInput.state(ctx));
+      map.putString("oemId", ServiceHealth.detectOemId());
+      map.putString("oemLabel", ServiceHealth.detectOemLabel());
+      map.putString("manufacturer", Build.MANUFACTURER != null ? Build.MANUFACTURER : "");
+      map.putString("model", Build.MODEL != null ? Build.MODEL : "");
+      map.putString("autostartStatus", "manual");
+      map.putString("backgroundStatus", "manual");
+      promise.resolve(map);
+    } catch (Throwable t) {
+      WritableMap map = Arguments.createMap();
+      map.putBoolean("accessibilityEnabled", false);
+      map.putBoolean("serviceConnected", false);
+      map.putBoolean("masterEnabled", false);
+      map.putBoolean("batteryOptimizationOk", false);
+      map.putBoolean("notificationListenerEnabled", false);
+      map.putBoolean("shizukuReady", false);
+      map.putString("oemId", "generic");
+      map.putString("oemLabel", "Android");
+      promise.resolve(map);
     }
-    boolean nlsOk = isOurNotificationListenerEnabled(ctx);
-    String code = ServiceHealth.diagnose(a11y, master, nlsOk);
-    WritableMap map = Arguments.createMap();
-    map.putBoolean("accessibilityEnabled", a11y);
-    map.putBoolean("serviceConnected", ServiceHealth.serviceConnected);
-    map.putBoolean("masterEnabled", master);
-    map.putBoolean("batteryOptimizationOk", batteryOk);
-    map.putBoolean("notificationListenerEnabled", nlsOk);
-    map.putString("oemId", ServiceHealth.detectOemId());
-    map.putString("oemLabel", ServiceHealth.detectOemLabel());
-    map.putString("manufacturer", Build.MANUFACTURER != null ? Build.MANUFACTURER : "");
-    map.putString("model", Build.MODEL != null ? Build.MODEL : "");
-    map.putString("phase", ServiceHealth.lastPhase);
-    map.putString("lastTargetPkg", ServiceHealth.lastTargetPkg);
-    map.putString("diagnoseCode", code);
-    map.putString("diagnoseMessage", ServiceHealth.lastDiagnoseMessage);
-    map.putDouble("lastA11yEventAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastA11yEventMs));
-    map.putDouble("lastTargetAppAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastTargetAppEventMs));
-    map.putDouble("lastRideAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastRideDetectedMs));
-    map.putDouble("lastAcceptAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastAcceptDetectedMs));
-    map.putDouble("lastClickAttemptAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastClickAttemptMs));
-    map.putDouble("lastClickSuccessAgeMs", (double) ServiceHealth.ageMs(ServiceHealth.lastClickSuccessMs));
-    // Auto-start / OEM background flags are not reliably readable
-    map.putString("autostartStatus", "manual");
-    map.putString("backgroundStatus", "manual");
-    promise.resolve(map);
   }
 
   // Required for NativeEventEmitter

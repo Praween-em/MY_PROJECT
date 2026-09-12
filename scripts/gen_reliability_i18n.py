@@ -88,24 +88,12 @@ UI = {
         "actions": "Actions",
         "viewOem": "View OEM instructions",
         "hideOem": "Hide OEM instructions",
-        "diagnose": "Diagnose Service",
         "openA11y": "Open Accessibility Settings",
         "openBattery": "Open Battery Settings",
         "openAppInfo": "Open App Info",
         "improve": "Improve reliability",
         "oemMenuNote": "Menu names change by Android/OS version. Look for Autostart, Battery, and Background activity.",
-        "diagnoseSection": "Diagnose",
-        "phase": "Engine phase",
-        "lastA11y": "Last a11y event",
-        "lastRide": "Last ride signal",
-        "lastAccept": "Last Accept found",
-        "lastClick": "Last click",
-        "success": "SUCCESS",
-        "diagnoseHint": "Pull to refresh after a ride attempt. This finds the failure point — it does not bypass Android limits.",
         "language": "Language",
-        "msAgo": "{n} ms ago",
-        "secAgo": "{n} sec ago",
-        "minAgo": "{n} min ago",
     },
     "hi": {
         "title": U(r"\u0938\u0947\u0935\u093e\u0020\u0935\u093f\u0936\u094d\u0935\u0938\u0928\u0940\u092f\u0924\u093e"),
@@ -133,24 +121,12 @@ UI = {
         "actions": U(r"\u0915\u093e\u0930\u094d\u0930\u0935\u093e\u0908"),
         "viewOem": U(r"OEM\u0020\u0928\u093f\u0930\u094d\u0926\u0947\u0936\u0020\u0926\u0947\u0916\u0947\u0902"),
         "hideOem": U(r"OEM\u0020\u0928\u093f\u0930\u094d\u0926\u0947\u0936\u0020\u091b\u093f\u092a\u093e\u090f\u0901"),
-        "diagnose": U(r"\u0938\u0947\u0935\u093e\u0020\u091c\u093e\u0901\u091a\u0947\u0902"),
         "openA11y": U(r"\u090f\u0915\u094d\u0938\u0947\u0938\u093f\u092c\u093f\u0932\u093f\u091f\u0940\u0020\u0938\u0947\u091f\u093f\u0902\u0917\u0020\u0916\u094b\u0932\u0947\u0902"),
         "openBattery": U(r"\u092c\u0948\u091f\u0930\u0940\u0020\u0938\u0947\u091f\u093f\u0902\u0917\u0020\u0916\u094b\u0932\u0947\u0902"),
         "openAppInfo": U(r"\u0910\u092a\u0020\u091c\u093e\u0928\u0915\u093e\u0930\u0940\u0020\u0916\u094b\u0932\u0947\u0902"),
         "improve": U(r"\u0935\u093f\u0936\u094d\u0935\u0938\u0928\u0940\u092f\u0924\u093e\u0020\u092c\u0922\u093c\u093e\u090f\u0901"),
         "oemMenuNote": U(r"\u092e\u0947\u0928\u0942\u0020\u0928\u093e\u092e\u0020Android/OS\u0020\u0915\u0947\u0020\u0905\u0928\u0941\u0938\u093e\u0930\u0020\u092c\u0926\u0932\u0924\u0947\u0020\u0939\u0948\u0902\u0964\u0020Autostart,\u0020Battery,\u0020Background\u0020\u0926\u0947\u0916\u0947\u0902\u0964"),
-        "diagnoseSection": U(r"\u0928\u093f\u0926\u093e\u0928"),
-        "phase": U(r"\u0907\u0902\u091c\u0928\u0020\u091a\u0930\u0923"),
-        "lastA11y": U(r"\u0905\u0902\u0924\u093f\u092e\u0020a11y\u0020\u0907\u0935\u0947\u0902\u091f"),
-        "lastRide": U(r"\u0905\u0902\u0924\u093f\u092e\u0020\u0930\u093e\u0907\u0921\u0020\u0938\u093f\u0917\u094d\u0928\u0932"),
-        "lastAccept": U(r"\u0905\u0902\u0924\u093f\u092e\u0020Accept\u0020\u092e\u093f\u0932\u093e"),
-        "lastClick": U(r"\u0905\u0902\u0924\u093f\u092e\u0020\u0915\u094d\u0932\u093f\u0915"),
-        "success": U(r"\u0938\u092b\u0932"),
-        "diagnoseHint": U(r"\u0930\u093e\u0907\u0921\u0020\u092a\u094d\u0930\u092f\u093e\u0938\u0020\u0915\u0947\u0020\u092c\u093e\u0926\u0020\u092a\u0941\u0932\u0020\u0915\u0930\u0915\u0947\u0020\u0930\u093f\u092b\u094d\u0930\u0947\u0936\u0020\u0915\u0930\u0947\u0902\u0964\u0020\u092f\u0939\u0020\u0938\u092e\u0938\u094d\u092f\u093e\u0020\u092c\u0924\u093e\u0924\u093e\u0020\u0939\u0948\u0020\u2014\u0020Android\u0020\u0938\u0940\u092e\u093e\u0020\u0928\u0939\u0940\u0902\u0020\u0924\u094b\u0921\u093c\u0924\u093e\u0964"),
         "language": U(r"\u092d\u093e\u0937\u093e"),
-        "msAgo": U(r"{n}\u0020\u092e\u093f.\u0938\u0947.\u0020\u092a\u0939\u0932\u0947"),
-        "secAgo": U(r"{n}\u0020\u0938\u0947\u0915\u0902\u0921\u0020\u092a\u0939\u0932\u0947"),
-        "minAgo": U(r"{n}\u0020\u092e\u093f\u0928\u091f\u0020\u092a\u0939\u0932\u0947"),
     },
     "te": {
         "title": U(r"\u0c38\u0c47\u0c35\u0020\u0c35\u0c3f\u0c36\u0c4d\u0c35\u0c38\u0c28\u0c40\u0c2f\u0c24"),
@@ -178,96 +154,12 @@ UI = {
         "actions": U(r"\u0c1a\u0c30\u0c4d\u0c2f\u0c32\u0c41"),
         "viewOem": U(r"OEM\u0020\u0c38\u0c42\u0c1a\u0c28\u0c32\u0c41\u0020\u0c1a\u0c42\u0c21\u0c02\u0c21\u0c3f"),
         "hideOem": U(r"OEM\u0020\u0c38\u0c42\u0c1a\u0c28\u0c32\u0c41\u0020\u0c26\u0c3e\u0c1a\u0c02\u0c21\u0c3f"),
-        "diagnose": U(r"\u0c38\u0c47\u0c35\u0c28\u0c41\u0020\u0c2a\u0c30\u0c3f\u0c36\u0c40\u0c32\u0c3f\u0c02\u0c1a\u0c02\u0c21\u0c3f"),
         "openA11y": U(r"\u0c2f\u0c3e\u0c15\u0c4d\u0c38\u0c46\u0c38\u0c3f\u0c2c\u0c3f\u0c32\u0c3f\u0c1f\u0c40\u0020\u0c38\u0c46\u0c1f\u0c4d\u0c1f\u0c3f\u0c02\u0c17\u0c4d\u0c38\u0c4d\u0020\u0c24\u0c46\u0c30\u0c35\u0c02\u0c21\u0c3f"),
         "openBattery": U(r"\u0c2c\u0c4d\u0c2f\u0c3e\u0c1f\u0c30\u0c40\u0020\u0c38\u0c46\u0c1f\u0c4d\u0c1f\u0c3f\u0c02\u0c17\u0c4d\u0c38\u0c4d\u0020\u0c24\u0c46\u0c30\u0c35\u0c02\u0c21\u0c3f"),
         "openAppInfo": U(r"\u0c2f\u0c3e\u0c2a\u0c4d\u0020\u0c38\u0c2e\u0c3e\u0c1a\u0c3e\u0c30\u0c02\u0020\u0c24\u0c46\u0c30\u0c35\u0c02\u0c21\u0c3f"),
         "improve": U(r"\u0c35\u0c3f\u0c36\u0c4d\u0c35\u0c38\u0c28\u0c40\u0c2f\u0c24\u0020\u0c2a\u0c46\u0c02\u0c1a\u0c02\u0c21\u0c3f"),
         "oemMenuNote": U(r"\u0c2e\u0c46\u0c28\u0c42\u0020\u0c2a\u0c47\u0c30\u0c4d\u0c32\u0c41\u0020Android/OS\u0020\u0c35\u0c46\u0c30\u0c4d\u0c37\u0c28\u0c4d\u200c\u0c24\u0c4b\u0020\u0c2e\u0c3e\u0c30\u0c24\u0c3e\u0c2f\u0c3f.\u0020Autostart,\u0020Battery,\u0020Background\u0020\u0c1a\u0c42\u0c21\u0c02\u0c21\u0c3f."),
-        "diagnoseSection": U(r"\u0c28\u0c3f\u0c30\u0c4d\u0c27\u0c3e\u0c30\u0c23"),
-        "phase": U(r"\u0c07\u0c02\u0c1c\u0c3f\u0c28\u0c4d\u0020\u0c26\u0c36"),
-        "lastA11y": U(r"\u0c1a\u0c3f\u0c35\u0c30\u0c3f\u0020a11y\u0020\u0c08\u0c35\u0c46\u0c02\u0c1f\u0c4d"),
-        "lastRide": U(r"\u0c1a\u0c3f\u0c35\u0c30\u0c3f\u0020\u0c30\u0c48\u0c21\u0c4d\u0020\u0c38\u0c3f\u0c17\u0c4d\u0c28\u0c32\u0c4d"),
-        "lastAccept": U(r"\u0c1a\u0c3f\u0c35\u0c30\u0c3f\u0020Accept\u0020\u0c26\u0c4a\u0c30\u0c3f\u0c15\u0c3f\u0c02\u0c26\u0c3f"),
-        "lastClick": U(r"\u0c1a\u0c3f\u0c35\u0c30\u0c3f\u0020\u0c15\u0c4d\u0c32\u0c3f\u0c15\u0c4d"),
-        "success": U(r"\u0c35\u0c3f\u0c1c\u0c2f\u0c02"),
-        "diagnoseHint": U(r"\u0c30\u0c48\u0c21\u0c4d\u0020\u0c2a\u0c4d\u0c30\u0c2f\u0c24\u0c4d\u0c28\u0c02\u0020\u0c24\u0c30\u0c4d\u0c35\u0c3e\u0c24\u0020\u0c2a\u0c41\u0c32\u0c4d\u0020\u0c1a\u0c47\u0c38\u0c3f\u0020\u0c30\u0c3f\u0c2b\u0c4d\u0c30\u0c46\u0c37\u0c4d\u0020\u0c1a\u0c47\u0c2f\u0c02\u0c21\u0c3f.\u0020\u0c07\u0c26\u0c3f\u0020\u0c38\u0c2e\u0c38\u0c4d\u0c2f\u0020\u0c1a\u0c42\u0c2a\u0c3f\u0c38\u0c4d\u0c24\u0c41\u0c02\u0c26\u0c3f\u0020\u2014\u0020Android\u0020\u0c2a\u0c30\u0c3f\u0c2e\u0c3f\u0c24\u0c41\u0c32\u0c28\u0c41\u0020\u0c26\u0c3e\u0c1f\u0c26\u0c41."),
         "language": U(r"\u0c2d\u0c3e\u0c37"),
-        "msAgo": U(r"{n}\u0020\u0c2e\u0c3f.\u0c38\u0c46.\u0020\u0c15\u0c4d\u0c30\u0c3f\u0c24\u0c02"),
-        "secAgo": U(r"{n}\u0020\u0c38\u0c46\u0c15\u0c28\u0c4d\u0c32\u0020\u0c15\u0c4d\u0c30\u0c3f\u0c24\u0c02"),
-        "minAgo": U(r"{n}\u0020\u0c28\u0c3f\u0c2e\u0c3f\u0c37\u0c3e\u0c32\u0020\u0c15\u0c4d\u0c30\u0c3f\u0c24\u0c02"),
-    },
-}
-
-DIAGNOSE = {
-    "en": {
-        "A": {"title": "Accessibility stopped", "detail": "Accessibility service stopped. Turn it ON again for SUPER RIDEX."},
-        "B": {"title": "No accessibility events", "detail": "Service connected, but no accessibility events are being received."},
-        "C": {"title": "Ride detection quiet", "detail": "Accessibility events active, ride detection failed (or no ride yet)."},
-        "D": {"title": "Accept not found", "detail": "Ride detected, Accept control not found."},
-        "E": {"title": "Click failed", "detail": "Accept detected, click action failed."},
-        "F": {"title": "Next ride missed", "detail": "Previous acceptance succeeded; subsequent ride detection failed."},
-        "OK": {"title": "Healthy", "detail": "Service looks healthy within Android/OEM limits."},
-    },
-    "hi": {
-        "A": {
-            "title": U(r"\u090f\u0915\u094d\u0938\u0947\u0938\u093f\u092c\u093f\u0932\u093f\u091f\u0940\u0020\u092c\u0902\u0926"),
-            "detail": U(r"\u090f\u0915\u094d\u0938\u0947\u0938\u093f\u092c\u093f\u0932\u093f\u091f\u0940\u0020\u0938\u0947\u0935\u093e\u0020\u092c\u0902\u0926\u0020\u0939\u0948\u0964\u0020SUPER RIDEX\u0020\u0915\u0947\u0020\u0932\u093f\u090f\u0020\u092b\u093f\u0930\u0020\u0938\u0947\u0020ON\u0020\u0915\u0930\u0947\u0902\u0964"),
-        },
-        "B": {
-            "title": U(r"\u0915\u094b\u0908\u0020\u0907\u0935\u0947\u0902\u091f\u0020\u0928\u0939\u0940\u0902"),
-            "detail": U(r"\u0938\u0947\u0935\u093e\u0020\u091c\u0941\u0921\u093c\u0940\u0020\u0939\u0948,\u0020\u0932\u0947\u0915\u093f\u0928\u0020\u090f\u0915\u094d\u0938\u0947\u0938\u093f\u092c\u093f\u0932\u093f\u091f\u0940\u0020\u0907\u0935\u0947\u0902\u091f\u0020\u0928\u0939\u0940\u0902\u0020\u0906\u0020\u0930\u0939\u0947\u0964"),
-        },
-        "C": {
-            "title": U(r"\u0930\u093e\u0907\u0921\u0020\u0921\u093f\u091f\u0947\u0915\u094d\u0936\u0928\u0020\u0936\u093e\u0902\u0924"),
-            "detail": U(r"\u0907\u0935\u0947\u0902\u091f\u0020\u0906\u0020\u0930\u0939\u0947\u0020\u0939\u0948\u0902,\u0020\u0930\u093e\u0907\u0921\u0020\u0921\u093f\u091f\u0947\u0915\u094d\u0936\u0928\u0020\u0928\u0939\u0940\u0902\u0020\u0939\u0941\u0908\u0020(\u092f\u093e\u0020\u0905\u092d\u0940\u0020\u0930\u093e\u0907\u0921\u0020\u0928\u0939\u0940\u0902)\u0964"),
-        },
-        "D": {
-            "title": U(r"Accept\u0020\u0928\u0939\u0940\u0902\u0020\u092e\u093f\u0932\u093e"),
-            "detail": U(r"\u0930\u093e\u0907\u0921\u0020\u092e\u093f\u0932\u0940,\u0020Accept\u0020\u092c\u091f\u0928\u0020\u0928\u0939\u0940\u0902\u0020\u092e\u093f\u0932\u093e\u0964"),
-        },
-        "E": {
-            "title": U(r"\u0915\u094d\u0932\u093f\u0915\u0020\u0905\u0938\u092b\u0932"),
-            "detail": U(r"Accept\u0020\u092e\u093f\u0932\u093e,\u0020\u0915\u094d\u0932\u093f\u0915\u0020\u0915\u094d\u0930\u093f\u092f\u093e\u0020\u0905\u0938\u092b\u0932\u0964"),
-        },
-        "F": {
-            "title": U(r"\u0905\u0917\u0932\u0940\u0020\u0930\u093e\u0907\u0921\u0020\u091b\u0942\u091f\u0940"),
-            "detail": U(r"\u092a\u093f\u091b\u0932\u093e\u0020Accept\u0020\u0938\u092b\u0932;\u0020\u0905\u0917\u0932\u0940\u0020\u0930\u093e\u0907\u0921\u0020\u0921\u093f\u091f\u0947\u0915\u094d\u0936\u0928\u0020\u0905\u0938\u092b\u0932\u0964"),
-        },
-        "OK": {
-            "title": U(r"\u0938\u094d\u0935\u0938\u094d\u0925"),
-            "detail": U(r"Android/OEM\u0020\u0938\u0940\u092e\u093e\u0913\u0902\u0020\u092e\u0947\u0902\u0020\u0938\u0947\u0935\u093e\u0020\u0920\u0940\u0915\u0020\u0932\u0917\u0924\u0940\u0020\u0939\u0948\u0964"),
-        },
-    },
-    "te": {
-        "A": {
-            "title": U(r"\u0c2f\u0c3e\u0c15\u0c4d\u0c38\u0c46\u0c38\u0c3f\u0c2c\u0c3f\u0c32\u0c3f\u0c1f\u0c40\u0020\u0c06\u0c2a\u0c3f\u0c35\u0c47\u0c2f\u0c2c\u0c21\u0c3f\u0c02\u0c26\u0c3f"),
-            "detail": U(r"\u0c2f\u0c3e\u0c15\u0c4d\u0c38\u0c46\u0c38\u0c3f\u0c2c\u0c3f\u0c32\u0c3f\u0c1f\u0c40\u0020\u0c38\u0c47\u0c35\u0020\u0c06\u0c2b\u0c4d\u0020\u0c09\u0c02\u0c26\u0c3f.\u0020SUPER RIDEX\u0020\u0c15\u0c4b\u0c38\u0c02\u0020\u0c2e\u0c33\u0c4d\u0c32\u0c40\u0020ON\u0020\u0c1a\u0c47\u0c2f\u0c02\u0c21\u0c3f."),
-        },
-        "B": {
-            "title": U(r"\u0c08\u0c35\u0c46\u0c02\u0c1f\u0c4d\u0c32\u0c41\u0020\u0c30\u0c3e\u0c35\u0c21\u0c02\u0020\u0c32\u0c47\u0c26\u0c41"),
-            "detail": U(r"\u0c38\u0c47\u0c35\u0020\u0c15\u0c28\u0c46\u0c15\u0c4d\u0c1f\u0c4d\u0020\u0c05\u0c2f\u0c3f\u0c02\u0c26\u0c3f,\u0020\u0c15\u0c3e\u0c28\u0c40\u0020\u0c2f\u0c3e\u0c15\u0c4d\u0c38\u0c46\u0c38\u0c3f\u0c2c\u0c3f\u0c32\u0c3f\u0c1f\u0c40\u0020\u0c08\u0c35\u0c46\u0c02\u0c1f\u0c4d\u0c32\u0c41\u0020\u0c30\u0c3e\u0c35\u0c21\u0c02\u0020\u0c32\u0c47\u0c26\u0c41."),
-        },
-        "C": {
-            "title": U(r"\u0c30\u0c48\u0c21\u0c4d\u0020\u0c17\u0c41\u0c30\u0c4d\u0c24\u0c3f\u0c02\u0c2a\u0c41\u0020\u0c28\u0c3f\u0c36\u0c4d\u0c36\u0c2c\u0c4d\u0c26\u0c02"),
-            "detail": U(r"\u0c08\u0c35\u0c46\u0c02\u0c1f\u0c4d\u0c32\u0c41\u0020\u0c09\u0c28\u0c4d\u0c28\u0c3e\u0c2f\u0c3f,\u0020\u0c30\u0c48\u0c21\u0c4d\u0020\u0c17\u0c41\u0c30\u0c4d\u0c24\u0c3f\u0c02\u0c2a\u0c41\u0020\u0c1c\u0c30\u0c17\u0c32\u0c47\u0c26\u0c41\u0020(\u0c32\u0c47\u0c26\u0c3e\u0020\u0c07\u0c02\u0c15\u0c3e\u0020\u0c30\u0c48\u0c21\u0c4d\u0020\u0c30\u0c3e\u0c32\u0c47\u0c26\u0c41)."),
-        },
-        "D": {
-            "title": U(r"Accept\u0020\u0c15\u0c28\u0c2c\u0c21\u0c32\u0c47\u0c26\u0c41"),
-            "detail": U(r"\u0c30\u0c48\u0c21\u0c4d\u0020\u0c15\u0c28\u0c2c\u0c21\u0c3f\u0c02\u0c26\u0c3f,\u0020Accept\u0020\u0c2c\u0c1f\u0c28\u0c4d\u0020\u0c15\u0c28\u0c2c\u0c21\u0c32\u0c47\u0c26\u0c41."),
-        },
-        "E": {
-            "title": U(r"\u0c15\u0c4d\u0c32\u0c3f\u0c15\u0c4d\u0020\u0c35\u0c3f\u0c2b\u0c32\u0c02"),
-            "detail": U(r"Accept\u0020\u0c15\u0c28\u0c2c\u0c21\u0c3f\u0c02\u0c26\u0c3f,\u0020\u0c15\u0c4d\u0c32\u0c3f\u0c15\u0c4d\u0020\u0c1a\u0c30\u0c4d\u0c2f\u0020\u0c35\u0c3f\u0c2b\u0c32\u0c2e\u0c48\u0c02\u0c26\u0c3f."),
-        },
-        "F": {
-            "title": U(r"\u0c24\u0c26\u0c41\u0c2a\u0c30\u0c3f\u0020\u0c30\u0c48\u0c21\u0c4d\u0020\u0c24\u0c2a\u0c4d\u0c2a\u0c3f\u0c02\u0c26\u0c3f"),
-            "detail": U(r"\u0c2e\u0c41\u0c28\u0c41\u0c2a\u0c1f\u0c3f\u0020Accept\u0020\u0c35\u0c3f\u0c1c\u0c2f\u0c35\u0c02\u0c24\u0c02;\u0020\u0c24\u0c26\u0c41\u0c2a\u0c30\u0c3f\u0020\u0c30\u0c48\u0c21\u0c4d\u0020\u0c17\u0c41\u0c30\u0c4d\u0c24\u0c3f\u0c02\u0c2a\u0c41\u0020\u0c35\u0c3f\u0c2b\u0c32\u0c02."),
-        },
-        "OK": {
-            "title": U(r"\u0c06\u0c30\u0c4b\u0c17\u0c4d\u0c2f\u0c02\u0c17\u0c3e\u0020\u0c09\u0c02\u0c26\u0c3f"),
-            "detail": U(r"Android/OEM\u0020\u0c2a\u0c30\u0c3f\u0c2e\u0c3f\u0c24\u0c41\u0c32\u0c4d\u0c32\u0c4b\u0020\u0c38\u0c47\u0c35\u0020\u0c2c\u0c3e\u0c17\u0c3e\u0c28\u0c47\u0020\u0c09\u0c02\u0c26\u0c3f."),
-        },
     },
 }
 
@@ -277,17 +169,17 @@ OEM_EN = {
         "title": "Xiaomi / Redmi / POCO",
         "steps": [
             "Open Settings → Apps → Permissions → Autostart (or App launch).",
-            "Enable Auto-start / allow background launch for SUPER RIDEX.",
-            "Open SUPER RIDEX App info → Battery → No restrictions / Allow background.",
+            "Enable Auto-start / allow background launch for AG rider.",
+            "Open AG rider App info → Battery → No restrictions / Allow background.",
             "On HyperOS/MIUI, also check Battery saver → No restrictions.",
-            "Keep Accessibility Service enabled for SUPER RIDEX.",
-            "Optional: lock SUPER RIDEX in Recents.",
+            "Keep Accessibility Service enabled for AG rider.",
+            "Optional: lock AG rider in Recents.",
         ],
     },
     "oppo": {
         "title": "OPPO (ColorOS)",
         "steps": [
-            "Settings → Apps → App management → SUPER RIDEX.",
+            "Settings → Apps → App management → AG rider.",
             "Enable Auto-launch / Auto-start if shown.",
             "Battery → Allow background activity.",
             "Keep Accessibility Service enabled.",
@@ -296,7 +188,7 @@ OEM_EN = {
     "vivo": {
         "title": "Vivo (Funtouch / OriginOS)",
         "steps": [
-            "Settings → Apps → SUPER RIDEX.",
+            "Settings → Apps → AG rider.",
             "Battery → Allow background activity.",
             "Enable Auto-start / High background power if shown.",
             "Keep Accessibility Service enabled.",
@@ -305,7 +197,7 @@ OEM_EN = {
     "realme": {
         "title": "realme (realme UI)",
         "steps": [
-            "Settings → Apps → App management → SUPER RIDEX.",
+            "Settings → Apps → App management → AG rider.",
             "Battery usage → Allow background activity.",
             "Enable Auto-launch / Startup if available.",
             "Keep Accessibility Service enabled.",
@@ -314,7 +206,7 @@ OEM_EN = {
     "oneplus": {
         "title": "OnePlus",
         "steps": [
-            "Settings → Apps → App management → SUPER RIDEX.",
+            "Settings → Apps → App management → AG rider.",
             "Battery → Allow background / Unrestricted.",
             "Enable Auto-launch if shown.",
             "Keep Accessibility Service enabled.",
@@ -324,7 +216,7 @@ OEM_EN = {
         "title": "Samsung (One UI)",
         "steps": [
             "Settings → Battery → Background usage limits.",
-            "Add SUPER RIDEX to Never sleeping apps.",
+            "Add AG rider to Never sleeping apps.",
             "Remove from Sleeping / Deep sleeping apps if listed.",
             "Avoid aggressive Power saving while taking rides.",
             "Keep Accessibility Service enabled.",
@@ -333,7 +225,7 @@ OEM_EN = {
     "motorola": {
         "title": "Motorola",
         "steps": [
-            "Settings → Apps → SUPER RIDEX.",
+            "Settings → Apps → AG rider.",
             "App battery usage → Allow background / Unrestricted.",
             "Check Battery optimization is not restricting the app.",
             "Keep Accessibility Service enabled.",
@@ -342,7 +234,7 @@ OEM_EN = {
     "pixel": {
         "title": "Google Pixel / Stock Android",
         "steps": [
-            "Settings → Apps → SUPER RIDEX → App battery usage.",
+            "Settings → Apps → AG rider → App battery usage.",
             "Choose Unrestricted for maximum background reliability.",
             "Note: Unrestricted can use more battery.",
             "Keep Accessibility Service enabled.",
@@ -351,7 +243,7 @@ OEM_EN = {
     "generic": {
         "title": "Android (other OEM)",
         "steps": [
-            "Settings → Apps → SUPER RIDEX.",
+            "Settings → Apps → AG rider.",
             "Allow background activity / disable battery restriction.",
             "Look for Autostart / Auto-launch if available.",
             "Keep Accessibility Service enabled.",
@@ -384,8 +276,6 @@ export const LANG_STORAGE_KEY = '@superridex/reliability_lang';
 
 const UI = {emit_obj(UI)};
 
-const DIAGNOSE = {emit_obj(DIAGNOSE)};
-
 const OEM = {emit_obj(OEM)};
 
 export function t(lang, key) {{
@@ -393,30 +283,15 @@ export function t(lang, key) {{
   return pack[key] ?? UI.en[key] ?? key;
 }}
 
-export function getDiagnoseCopy(lang, code) {{
-  const pack = DIAGNOSE[lang] || DIAGNOSE.en;
-  return pack[code] || pack.OK || DIAGNOSE.en.OK;
-}}
 
 export function getOemGuide(lang, oemId) {{
   const pack = OEM[lang] || OEM.en;
   return pack[oemId] || pack.generic || OEM.en.generic;
 }}
 
-export function formatAge(ms, lang = 'en') {{
-  if (ms == null || ms < 0) return '\\u2014';
-  const pack = UI[lang] || UI.en;
-  if (ms < 1000) return pack.msAgo.replace('{{n}}', String(ms));
-  const s = Math.round(ms / 1000);
-  if (s < 60) return pack.secAgo.replace('{{n}}', String(s));
-  const m = Math.round(s / 60);
-  return pack.minAgo.replace('{{n}}', String(m));
-}}
 """
-    # Fix the em-dash in formatAge — emit real char via escape in JS source
-    out = out.replace("return '\\u2014';", 'return "\\u2014";')
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(out, encoding="utf-8", newline="\n")
+    OUT.write_text(out.rstrip() + "\n", encoding="utf-8", newline="\n")
     text = OUT.read_text(encoding="utf-8")
     assert "\ufffd" not in text, "replacement char found"
     assert U(r"\u0c38\u0c47\u0c35") in text or "\\u0c38\\u0c47\\u0c35" in text

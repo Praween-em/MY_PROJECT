@@ -1,5 +1,5 @@
 /**
- * index.js — Express app (Postgres + Razorpay + Admin)
+ * index.js — Express app (Postgres + Telegram-assisted payments + Admin)
  */
 
 const path = require('path');
@@ -17,12 +17,12 @@ const express = require('express');
 const cors = require('cors');
 
 const subscriptionRoutes = require('./routes/subscription');
-const webhookRoutes = require('./routes/webhook');
 const referralRoutes = require('./routes/referral');
 const entitlementRoutes = require('./routes/entitlement');
 const adminRoutes = require('./routes/admin');
 const authRoutes = require('./routes/auth');
 const socialsRoutes = require('./routes/socials');
+const paymentContactRoutes = require('./routes/paymentContact');
 const { ping } = require('./config/db');
 
 const app = express();
@@ -41,8 +41,8 @@ app.use('/auth', authRoutes);
 app.use('/subscription', subscriptionRoutes);
 app.use('/referral', referralRoutes);
 app.use('/entitlement', entitlementRoutes);
-app.use('/webhook', webhookRoutes);
 app.use('/socials', socialsRoutes);
+app.use('/payment-contact', paymentContactRoutes);
 app.use('/admin/api', adminRoutes);
 
 // Simple admin panel (static)
@@ -67,7 +67,7 @@ app.get('/health', async (_req, res) => {
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => console.log(`SUPER RIDEX backend on port ${PORT}`));
+  app.listen(PORT, () => console.log(`AG rider backend on port ${PORT}`));
 }
 
 module.exports = app;

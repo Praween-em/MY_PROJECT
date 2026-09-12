@@ -91,10 +91,9 @@
       <div class="tabs">
         <button class="tab active" data-tab="overview">Overview</button>
         <button class="tab" data-tab="subscriptions">Subscriptions</button>
-        <button class="tab" data-tab="paid">Paid Customers</button>
-        <button class="tab" data-tab="payments">Payments</button>
         <button class="tab" data-tab="users">Users</button>
         <button class="tab" data-tab="plans">Plan Pricing</button>
+        <button class="tab" data-tab="payment-contact">Payment Contact</button>
         <button class="tab" data-tab="socials">Social Links</button>
         <button class="tab" data-tab="audit">Audit Log</button>
         <button class="secondary" id="logoutBtn" style="margin-left:auto">Logout</button>
@@ -120,50 +119,6 @@
           <button class="ghost" id="refreshSubs">Refresh</button>
         </div>
         <div id="subsTable" style="overflow-x:auto"></div>
-      </div>
-
-      <div id="tab-paid" class="card tab-panel hidden">
-        <div class="toolbar">
-          <h3 class="section-title" style="margin:0;flex:1">Paid Customers</h3>
-          <select id="paidLimit" style="width:110px">
-            <option value="50">50</option>
-            <option value="100" selected>100</option>
-            <option value="200">200</option>
-          </select>
-          <button class="ghost" id="refreshPaid">Refresh</button>
-        </div>
-        <div id="paidTable" style="overflow-x:auto"></div>
-      </div>
-
-      <div id="tab-payments" class="card tab-panel hidden">
-        <div class="toolbar">
-          <h3 class="section-title" style="margin:0;flex:1">Successful Payments</h3>
-          <select id="payLimit" style="width:110px">
-            <option value="50">50</option>
-            <option value="100" selected>100</option>
-            <option value="200">200</option>
-          </select>
-          <button class="ghost" id="refreshPayments">Refresh</button>
-        </div>
-        <div class="card" style="margin:0 0 14px; padding:14px; background:#f8fafc">
-          <p class="muted" style="margin:0 0 10px">Paid on Razorpay but missing here? Paste the <b>pay_…</b> ID from Razorpay dashboard → Payments.</p>
-          <div class="row">
-            <div style="flex:2">
-              <label>Razorpay Payment ID</label>
-              <input id="reconcilePaymentId" placeholder="pay_XXXXXXXXXXXXXXXX" />
-            </div>
-            <div>
-              <label>Phone (optional)</label>
-              <input id="reconcilePhone" placeholder="10-digit" maxlength="10" />
-            </div>
-            <div style="flex:0; min-width:120px">
-              <label>&nbsp;</label>
-              <button class="ok" id="reconcileBtn" style="width:100%">Activate</button>
-            </div>
-          </div>
-          <div id="reconcileMsg" class="ok-msg"></div>
-        </div>
-        <div id="paymentsTable" style="overflow-x:auto"></div>
       </div>
 
       <div id="tab-users" class="card tab-panel hidden">
@@ -197,6 +152,29 @@
           <button class="ghost" id="reloadPlansBtn">Reload</button>
         </div>
         <div id="plansMsg" class="muted" style="margin-top:8px"></div>
+      </div>
+
+      <div id="tab-payment-contact" class="card tab-panel hidden">
+        <h3 class="section-title">Telegram Payment Contact</h3>
+        <p class="muted">The app opens this Telegram link when a user chooses a plan. The optional image appears at the bottom of the plans screen. Changes apply without an app rebuild.</p>
+        <div style="margin-top:14px">
+          <label>Telegram URL</label>
+          <input id="paymentTelegramUrl" placeholder="https://t.me/your_username" />
+        </div>
+        <div class="actions">
+          <button id="savePaymentContactBtn">Save Telegram link</button>
+          <button class="ghost" id="reloadPaymentContactBtn">Reload</button>
+        </div>
+        <div style="margin-top:18px">
+          <label>Payment screen image (PNG, JPEG or WebP; maximum 2 MB)</label>
+          <input id="paymentImageFile" type="file" accept="image/png,image/jpeg,image/webp" />
+          <div id="paymentImagePreview" style="margin-top:12px"></div>
+        </div>
+        <div class="actions">
+          <button class="ok" id="uploadPaymentImageBtn">Upload image</button>
+          <button class="danger" id="removePaymentImageBtn">Remove image</button>
+        </div>
+        <div id="paymentContactMsg" class="muted" style="margin-top:8px"></div>
       </div>
 
       <div id="tab-socials" class="card tab-panel hidden">
@@ -237,10 +215,6 @@
       if (!v) return '—';
       const d = new Date(v);
       return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
-    }
-    function money(paise) {
-      if (paise == null) return '—';
-      return '₹' + Math.round(paise / 100).toLocaleString('en-IN');
     }
     function toast(msg, isErr) {
       const el = document.getElementById('toast');
@@ -291,10 +265,9 @@
       document.getElementById('tab-' + name).classList.remove('hidden');
       if (name === 'overview') loadOverview();
       if (name === 'subscriptions') loadSubscriptions();
-      if (name === 'paid') loadPaid();
-      if (name === 'payments') loadPayments();
       if (name === 'users') runSearch();
       if (name === 'plans') loadPlans();
+      if (name === 'payment-contact') loadPaymentContact();
       if (name === 'socials') loadSocials();
       if (name === 'audit') loadAudit();
     }
@@ -322,38 +295,8 @@
 
     document.getElementById('refreshOverview').onclick = () => loadOverview();
     document.getElementById('refreshSubs').onclick = () => loadSubscriptions();
-    document.getElementById('refreshPaid').onclick = () => loadPaid();
-    document.getElementById('refreshPayments').onclick = () => loadPayments();
-    document.getElementById('reconcileBtn').onclick = async () => {
-      const paymentId = document.getElementById('reconcilePaymentId').value.trim();
-      const phone = document.getElementById('reconcilePhone').value.replace(/\D/g, '');
-      const msg = document.getElementById('reconcileMsg');
-      msg.textContent = '';
-      msg.className = 'ok-msg';
-      if (!paymentId.startsWith('pay_')) {
-        msg.textContent = 'Enter a valid pay_… ID from Razorpay dashboard';
-        msg.className = 'error';
-        return;
-      }
-      try {
-        const body = { paymentId };
-        if (phone) body.phone = phone;
-        const res = await api('/payments/reconcile', { method: 'POST', body: JSON.stringify(body) });
-        msg.textContent = res.alreadyProcessed
-          ? `Already active for ${res.phone} until ${fmtDT(res.subscriptionEnd)}`
-          : `Activated ${res.planId} for ${res.phone} until ${fmtDT(res.subscriptionEnd)}`;
-        document.getElementById('reconcilePaymentId').value = '';
-        await loadPayments();
-        await loadOverview();
-      } catch (e) {
-        msg.textContent = e.message;
-        msg.className = 'error';
-      }
-    };
     document.getElementById('refreshAudit').onclick = () => loadAudit();
     document.getElementById('subsLimit').onchange = () => loadSubscriptions();
-    document.getElementById('paidLimit').onchange = () => loadPaid();
-    document.getElementById('payLimit').onchange = () => loadPayments();
     document.getElementById('auditLimit').onchange = () => loadAudit();
     document.getElementById('searchBtn').onclick = () => runSearch();
     document.getElementById('searchQ').addEventListener('keydown', (e) => {
@@ -362,6 +305,7 @@
     document.getElementById('reloadSocialsBtn').onclick = () => loadSocials();
     document.getElementById('reloadPlansBtn').onclick = () => loadPlans();
     document.getElementById('savePlansBtn').onclick = () => savePlans();
+    document.getElementById('reloadPaymentContactBtn').onclick = () => loadPaymentContact();
 
     document.getElementById('createUserBtn').onclick = async () => {
       const phone = document.getElementById('createPhone').value.replace(/\D/g, '');
@@ -384,9 +328,6 @@
         const cards = [
           ['Total users', stats.totalUsers, 'users'],
           ['Active subscriptions', stats.activeSubscriptions, 'subscriptions'],
-          ['Paid customers', stats.paidCustomers, 'paid'],
-          ['Successful payments', stats.successfulPayments, 'payments'],
-          ['Revenue (captured)', '₹' + (stats.revenueInr || 0).toLocaleString('en-IN'), 'payments'],
           ['Blocked users', stats.blockedUsers, 'users'],
           ['Bound devices', stats.boundDevices, 'users'],
         ];
@@ -469,7 +410,6 @@
     function refreshCurrentLists() {
       const active = document.querySelector('.tab.active')?.dataset.tab;
       if (active === 'subscriptions') loadSubscriptions();
-      if (active === 'paid') loadPaid();
       if (active === 'users') runSearch();
       if (active === 'overview') loadOverview();
     }
@@ -492,55 +432,6 @@
             <td>${u.deviceCount ?? '—'}</td>
             <td>${u.maxDevices}</td>
             <td>${quickActions(u.phone, { block: true })}</td>
-          </tr>`).join('')}
-        </tbody></table>`;
-        bindRowActions(el);
-      } catch (e) { el.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
-    }
-
-    async function loadPaid() {
-      const el = document.getElementById('paidTable');
-      el.innerHTML = '<p class="muted">Loading…</p>';
-      try {
-        const limit = document.getElementById('paidLimit').value;
-        const { customers } = await api('/paid-customers?limit=' + limit);
-        if (!customers.length) { el.innerHTML = '<p class="muted">No paid customers yet</p>'; return; }
-        el.innerHTML = `<table><thead><tr>
-          <th>Phone</th><th>Sub</th><th>Plan</th><th>Expires</th><th>Payments</th><th>Last pay</th><th>Account</th><th>Actions</th>
-        </tr></thead><tbody>
-          ${customers.map((u) => `<tr>
-            <td>${esc(u.phone)}</td>
-            <td>${u.active ? '<span class="pill ok">ACTIVE</span>' : '<span class="pill bad">EXPIRED</span>'}</td>
-            <td>${esc(u.planType || '—')}</td>
-            <td>${fmtDT(u.subscriptionEnd)}</td>
-            <td>${u.paymentCount}</td>
-            <td>${fmtDT(u.lastPaymentAt)}</td>
-            <td>${u.status === 'blocked' ? '<span class="pill bad">BLOCKED</span>' : '<span class="pill ok">OK</span>'}</td>
-            <td>${quickActions(u.phone, { block: u.status !== 'blocked' })}</td>
-          </tr>`).join('')}
-        </tbody></table>`;
-        bindRowActions(el);
-      } catch (e) { el.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
-    }
-
-    async function loadPayments() {
-      const el = document.getElementById('paymentsTable');
-      el.innerHTML = '<p class="muted">Loading…</p>';
-      try {
-        const limit = document.getElementById('payLimit').value;
-        const { payments } = await api('/payments?limit=' + limit);
-        if (!payments.length) { el.innerHTML = '<p class="muted">No successful payments yet</p>'; return; }
-        el.innerHTML = `<table><thead><tr>
-          <th>Date</th><th>Phone</th><th>Plan</th><th>Amount</th><th>Payment ID</th><th>Status</th><th></th>
-        </tr></thead><tbody>
-          ${payments.map((p) => `<tr>
-            <td>${fmtDT(p.createdAt)}</td>
-            <td>${esc(p.phone)}</td>
-            <td>${esc(p.planType)}</td>
-            <td>${p.amountInr != null ? '₹' + p.amountInr : money(p.amount)}</td>
-            <td class="mono">${esc(p.paymentId)}</td>
-            <td><span class="pill ok">${esc(p.status)}</span></td>
-            <td>${openBtn(p.phone)}</td>
           </tr>`).join('')}
         </tbody></table>`;
         bindRowActions(el);
@@ -600,7 +491,7 @@
                 <input data-field="durationDays" type="number" min="1" max="730" value="${p.durationDays}" />
               </div>
             </div>
-            <div style="margin-top:10px"><label>Description (Razorpay checkout)</label>
+            <div style="margin-top:10px"><label>Description (shown with plan)</label>
               <input data-field="description" value="${esc(p.description || '')}" />
             </div>
             <label style="margin-top:10px; display:flex; align-items:center; gap:8px; font-size:13px">
@@ -638,6 +529,94 @@
         toast(e.message, true);
       }
     }
+
+    function renderPaymentImage(config) {
+      const preview = document.getElementById('paymentImagePreview');
+      const removeBtn = document.getElementById('removePaymentImageBtn');
+      removeBtn.disabled = !config?.hasImage;
+      preview.innerHTML = config?.hasImage
+        ? `<img src="/payment-contact/image?v=${encodeURIComponent(config.imageUpdatedAt || Date.now())}" alt="Current payment screen" style="display:block;max-width:360px;max-height:360px;border-radius:12px;border:1px solid #cbd5e1" />`
+        : '<p class="muted">No payment image uploaded.</p>';
+    }
+
+    async function loadPaymentContact() {
+      const msg = document.getElementById('paymentContactMsg');
+      msg.textContent = 'Loading…';
+      msg.className = 'muted';
+      try {
+        const { config } = await api('/payment-contact');
+        document.getElementById('paymentTelegramUrl').value = config?.telegramUrl || '';
+        renderPaymentImage(config);
+        msg.textContent = '';
+      } catch (e) {
+        msg.className = 'error';
+        msg.textContent = e.message;
+      }
+    }
+
+    document.getElementById('savePaymentContactBtn').onclick = async () => {
+      const msg = document.getElementById('paymentContactMsg');
+      msg.textContent = 'Saving…';
+      msg.className = 'muted';
+      try {
+        const telegramUrl = document.getElementById('paymentTelegramUrl').value.trim();
+        const { config } = await api('/payment-contact', {
+          method: 'PUT',
+          body: JSON.stringify({ telegramUrl }),
+        });
+        renderPaymentImage(config);
+        msg.className = 'ok-msg';
+        msg.textContent = 'Telegram payment link saved.';
+        toast('Payment contact saved');
+      } catch (e) {
+        msg.className = 'error';
+        msg.textContent = e.message;
+      }
+    };
+
+    document.getElementById('uploadPaymentImageBtn').onclick = async () => {
+      const file = document.getElementById('paymentImageFile').files[0];
+      const msg = document.getElementById('paymentContactMsg');
+      if (!file) return toast('Choose an image first', true);
+      if (file.size > 2 * 1024 * 1024) return toast('Image must be 2 MB or smaller', true);
+      msg.textContent = 'Uploading…';
+      msg.className = 'muted';
+      try {
+        const res = await fetch('/admin/api/payment-contact/image', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + token,
+            'Content-Type': file.type,
+          },
+          body: file,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || 'Upload failed');
+        document.getElementById('paymentImageFile').value = '';
+        renderPaymentImage(data.config);
+        msg.className = 'ok-msg';
+        msg.textContent = 'Payment image uploaded.';
+        toast('Payment image updated');
+      } catch (e) {
+        msg.className = 'error';
+        msg.textContent = e.message;
+      }
+    };
+
+    document.getElementById('removePaymentImageBtn').onclick = async () => {
+      if (!confirm('Remove the payment image from the app?')) return;
+      const msg = document.getElementById('paymentContactMsg');
+      try {
+        const { config } = await api('/payment-contact/image', { method: 'DELETE' });
+        renderPaymentImage(config);
+        msg.className = 'ok-msg';
+        msg.textContent = 'Payment image removed.';
+        toast('Payment image removed');
+      } catch (e) {
+        msg.className = 'error';
+        msg.textContent = e.message;
+      }
+    };
 
     async function loadSocials() {
       const form = document.getElementById('socialsForm');
@@ -807,16 +786,6 @@
             <button class="secondary" id="resetDevices">Reset all devices</button>
           </div>
 
-          <h3>Payment history</h3>
-          ${data.payments.length ? `<table><thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Payment ID</th><th>Status</th></tr></thead><tbody>
-            ${data.payments.map((p) => `<tr>
-              <td>${fmtDT(p.createdAt)}</td>
-              <td>${esc(p.planType)}</td>
-              <td>${p.amount != null ? money(p.amount) : '—'}</td>
-              <td class="mono">${esc(p.paymentId)}</td>
-              <td><span class="pill ok">${esc(p.status)}</span></td>
-            </tr>`).join('')}
-          </tbody></table>` : '<p class="muted">No payments for this user</p>'}
         `;
 
         const patch = async (body, okMsg) => {

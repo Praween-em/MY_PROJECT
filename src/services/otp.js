@@ -14,24 +14,60 @@
  */
 
 import { OTPWidget } from '@msg91comm/sendotp-react-native';
+import Constants from 'expo-constants';
+import { MSG91_WIDGET_ID as GEN_WIDGET_ID, MSG91_AUTH_TOKEN as GEN_AUTH_TOKEN } from '../config/generatedEnv';
 
-const WIDGET_ID = process.env.EXPO_PUBLIC_MSG91_WIDGET_ID || '';
-const AUTH_TOKEN = process.env.EXPO_PUBLIC_MSG91_AUTH_TOKEN || '';
+function firstNonEmpty(...vals) {
+  for (const v of vals) {
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+
+function extra() {
+  return (
+    Constants.expoConfig?.extra ||
+    Constants.manifest2?.extra ||
+    Constants.manifest?.extra ||
+    {}
+  );
+}
+
+function resolveMsg91() {
+  const x = extra();
+  return {
+    widgetId: firstNonEmpty(
+      GEN_WIDGET_ID,
+      x.msg91WidgetId,
+      process.env.EXPO_PUBLIC_MSG91_WIDGET_ID
+    ),
+    authToken: firstNonEmpty(
+      GEN_AUTH_TOKEN,
+      x.msg91AuthToken,
+      process.env.EXPO_PUBLIC_MSG91_AUTH_TOKEN
+    ),
+  };
+}
 
 let initialized = false;
+let initializedWith = '';
 
 export function isOtpConfigured() {
-  return !!(WIDGET_ID && AUTH_TOKEN);
+  const { widgetId, authToken } = resolveMsg91();
+  return !!(widgetId && authToken);
 }
 
 export function initOtpWidget() {
-  if (!isOtpConfigured()) {
+  const { widgetId, authToken } = resolveMsg91();
+  if (!widgetId || !authToken) {
     console.warn('[otp] MSG91 widgetId / authToken not set in env');
     return false;
   }
-  if (initialized) return true;
-  OTPWidget.initializeWidget(String(WIDGET_ID), String(AUTH_TOKEN));
+  const key = `${widgetId}:${authToken}`;
+  if (initialized && initializedWith === key) return true;
+  OTPWidget.initializeWidget(String(widgetId), String(authToken));
   initialized = true;
+  initializedWith = key;
   return true;
 }
 

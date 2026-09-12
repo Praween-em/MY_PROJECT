@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { DarkTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
@@ -7,15 +7,14 @@ import * as SplashScreen from 'expo-splash-screen';
 import LoginScreen from '../screens/LoginScreen';
 import PlansScreen from '../screens/PlansScreen';
 import PermissionsSetupScreen from '../screens/PermissionsSetupScreen';
-import ServiceReliabilityScreen from '../screens/ServiceReliabilityScreen';
 import LoadingScreen from '../screens/LoadingScreen';
 import PrivacyPolicyScreen from '../screens/PrivacyPolicyScreen';
 import TermsScreen from '../screens/TermsScreen';
 import MainTabs from './MainTabs';
 import { getStoredUser } from '../utils/storage';
+import { colors } from '../theme/colors';
 
 const Stack = createNativeStackNavigator();
-const MIN_LOADING_MS = 2000;
 
 function resolveInitialRoute(user) {
   if (!user?.phone) return 'Login';
@@ -24,9 +23,10 @@ function resolveInitialRoute(user) {
 
 export default function RootNavigator() {
   const [initialRoute, setInitialRoute] = useState(null);
-  const [minTimeDone, setMinTimeDone] = useState(false);
-  const [splashHidden, setSplashHidden] = useState(false);
-  const bootStartedAt = useRef(Date.now());
+
+  const hideNativeSplash = useCallback(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,7 +37,6 @@ export default function RootNavigator() {
       .catch(() => {
         if (!cancelled) setInitialRoute('Login');
       });
-    // Never block forever on AsyncStorage / slow flash storage
     const fallback = setTimeout(() => {
       if (!cancelled) setInitialRoute((r) => r || 'Login');
     }, 800);
@@ -47,45 +46,33 @@ export default function RootNavigator() {
     };
   }, []);
 
-  // Keep branded loading UI visible for at least 2 seconds
-  useEffect(() => {
-    const elapsed = Date.now() - bootStartedAt.current;
-    const remaining = Math.max(0, MIN_LOADING_MS - elapsed);
-    const t = setTimeout(() => setMinTimeDone(true), remaining);
-    return () => clearTimeout(t);
-  }, []);
-
-  const hideNativeSplash = useCallback(async () => {
-    if (splashHidden) return;
-    try {
-      await SplashScreen.hideAsync();
-    } catch {
-      // ignore
-    } finally {
-      setSplashHidden(true);
-    }
-  }, [splashHidden]);
-
-  // Hand off from native splash to our LoadingScreen quickly
   useEffect(() => {
     hideNativeSplash();
-    const t = setTimeout(hideNativeSplash, 200);
-    return () => clearTimeout(t);
   }, [hideNativeSplash]);
 
-  const showLoading = !initialRoute || !minTimeDone;
-
-  if (showLoading) {
+  if (!initialRoute) {
     return (
-      <SafeAreaProvider style={{ flex: 1, backgroundColor: '#000000' }}>
-        <LoadingScreen onVisible={hideNativeSplash} onReady={hideNativeSplash} />
+      <SafeAreaProvider style={{ flex: 1, backgroundColor: colors.background }}>
+        <LoadingScreen onReady={hideNativeSplash} />
       </SafeAreaProvider>
     );
   }
 
   return (
     <SafeAreaProvider onLayout={hideNativeSplash}>
-      <NavigationContainer>
+      <NavigationContainer
+        theme={{
+          ...DarkTheme,
+          colors: {
+            ...DarkTheme.colors,
+            background: colors.background,
+            card: colors.surface,
+            text: colors.icy,
+            border: colors.border,
+            primary: colors.purple,
+          },
+        }}
+      >
         <Stack.Navigator
           initialRouteName={initialRoute}
           screenOptions={{
@@ -97,7 +84,6 @@ export default function RootNavigator() {
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Plans" component={PlansScreen} />
           <Stack.Screen name="PermissionsSetup" component={PermissionsSetupScreen} />
-          <Stack.Screen name="ServiceReliability" component={ServiceReliabilityScreen} />
           <Stack.Screen name="Main" component={MainTabs} />
           <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
           <Stack.Screen name="Terms" component={TermsScreen} />

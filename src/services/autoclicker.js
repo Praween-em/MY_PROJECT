@@ -28,12 +28,12 @@ export function getServiceStatus() {
   return AutoClickerModule?.getServiceStatus() ?? unavailable();
 }
 
-export function getServiceHealth() {
-  return AutoClickerModule?.getServiceHealth() ?? unavailable();
-}
-
 export function setMinPrice(price) {
   return AutoClickerModule?.setMinPrice(price) ?? unavailable();
+}
+
+export function setMaxPickup(km) {
+  return AutoClickerModule?.setMaxPickup(km) ?? unavailable();
 }
 
 export function setDelayMs(delay) {
@@ -52,15 +52,21 @@ export function setMonitoredPackages(packages) {
   return AutoClickerModule?.setMonitoredPackages(packages) ?? unavailable();
 }
 
-export function saveSettings({ enabled, delayMs, monitoredPackages, nuclearMode }) {
+export function saveSettings({
+  enabled,
+  monitoredPackages,
+  minPrice,
+  maxPickup,
+}) {
   if (!AutoClickerModule) return unavailable();
-  const nuclear = nuclearMode !== false;
-  // minPrice omitted — UI removed; native getMinPrice() always returns 0
+  const fare = Math.max(0, Number(minPrice) || 0);
+  const pickup = Math.max(0, Number(maxPickup) || 0);
   return Promise.all([
     AutoClickerModule.setServiceEnabled(!!enabled),
-    AutoClickerModule.setNuclearMode(nuclear),
-    // Nuclear always 0; Standard can use a small delay if set
-    AutoClickerModule.setDelayMs(nuclear ? 0 : (delayMs ?? 0)),
+    AutoClickerModule.setNuclearMode(true),
+    AutoClickerModule.setDelayMs(0),
+    AutoClickerModule.setMinPrice(fare),
+    AutoClickerModule.setMaxPickup?.(pickup) ?? Promise.resolve(pickup),
     AutoClickerModule.setMonitoredPackages(monitoredPackages),
   ]);
 }
@@ -71,20 +77,32 @@ export function onRideAccepted(callback) {
   return () => sub.remove();
 }
 
-/** Rapido Captain / driver app package ids. */
+export function getShizukuStatus() {
+  return AutoClickerModule?.getShizukuStatus?.() ?? Promise.resolve({
+    installed: false, running: false, permission: false, ready: false, state: 'missing',
+  });
+}
+
+export function requestShizukuPermission() {
+  return AutoClickerModule?.requestShizukuPermission?.() ?? Promise.resolve(false);
+}
+
+export function openShizukuApp() {
+  if (AutoClickerModule?.openShizukuApp) AutoClickerModule.openShizukuApp();
+}
+
+export function openShizukuPlayStore() {
+  if (AutoClickerModule?.openShizukuPlayStore) AutoClickerModule.openShizukuPlayStore();
+}
+
+/** Monitored driver-app package ids (internal — do not show names in UI). */
 export const APP_PACKAGES = {
+  ola: 'com.olacabs.oladriver',
   rapido: 'com.rapido.rider',
-  captain: 'com.rapido.captain',
-  driver: 'com.rapido.driver',
 };
 
+/** Generic label for history — never expose partner brand names in UI. */
 export function packageLabel(packageName) {
-  switch (packageName) {
-    case APP_PACKAGES.rapido:
-    case APP_PACKAGES.captain:
-    case APP_PACKAGES.driver:
-      return 'Rapido';
-    default:
-      return packageName?.split('.').pop() || 'App';
-  }
+  if (!packageName) return 'Ride';
+  return 'Driver app';
 }

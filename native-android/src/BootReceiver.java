@@ -1,4 +1,4 @@
-package com.rapido.tap;
+package com.ridio.app;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -6,8 +6,7 @@ import android.content.Intent;
 import android.util.Log;
 
 /**
- * Receives BOOT_COMPLETED. Accessibility must be enabled manually by the user once;
- * this receiver is a hook for future auto-resume logic.
+ * Boot / Xiaomi quickboot / app update — restart the sticky engine if Auto-accept was ON.
  */
 public class BootReceiver extends BroadcastReceiver {
 
@@ -16,11 +15,17 @@ public class BootReceiver extends BroadcastReceiver {
   @Override
   public void onReceive(Context context, Intent intent) {
     if (intent == null || intent.getAction() == null) return;
-    if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+    final String action = intent.getAction();
+    if (Intent.ACTION_BOOT_COMPLETED.equals(action)
+        || "android.intent.action.QUICKBOOT_POWERON".equals(action)
+        || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
       AutoClickerConfig.init(context);
-      Log.w(TAG, "BOOT_COMPLETED enabled=" + AutoClickerConfig.isEnabled()
+      Log.w(TAG, "BOOT/RESUME action=" + action
+          + " enabled=" + AutoClickerConfig.isEnabled()
           + " nuclear=" + AutoClickerConfig.isNuclearMode()
           + " minPrice=" + AutoClickerConfig.getMinPrice());
+      EngineKeepAlive.ensureStarted(context);
+      RecentsGuard.ensureStarted(context);
     }
   }
 }

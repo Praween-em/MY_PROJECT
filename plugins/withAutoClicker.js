@@ -8,16 +8,28 @@ const fs = require('fs');
 const path = require('path');
 
 /** Must match app.config.js android.package */
-const APP_PACKAGE = 'com.rapido.tap';
+const APP_PACKAGE = 'com.ridio.app';
 const JAVA_DIR = `app/src/main/java/${APP_PACKAGE.replace(/\./g, '/')}`;
 const JAVA_FILES = [
   'AutoClickerConfig.java',
   'AutoClickerService.java',
   'AutoClickerModule.java',
   'AutoClickerPackage.java',
-  'BootReceiver.java',
-  'RideAlertListener.java',
+    'BootReceiver.java',
+    'EngineKeepAlive.java',
+    'RecentsGuard.java',
+    'RideAlertListener.java',
   'ServiceHealth.java',
+  'ShizukuInput.java',
+  'TapHighlightOverlay.java',
+];
+
+const SHIZUKU_PKG = 'moe.shizuku.privileged.api';
+const TARGET_PACKAGES = [
+  'com.olacabs.oladriver',
+  'com.rapido.rider',
+  'com.rapido.captain',
+  'com.android.vending',
 ];
 
 const ACCESSIBILITY_XML = `<?xml version="1.0" encoding="utf-8"?>
@@ -87,9 +99,9 @@ function copyNativeSources(projectRoot, platformRoot) {
     return;
   }
 
-  // Drop stale packages from older branding (playnix / rapidotap)
+  // Drop stale packages from older branding
   const javaRoot = path.join(platformRoot, 'app/src/main/java');
-  for (const stale of ['com/playnix', 'com/rapidotap']) {
+  for (const stale of ['com/playnix', 'com/rapidotap', 'com/rapido']) {
     const stalePath = path.join(javaRoot, stale);
     if (fs.existsSync(stalePath)) {
       fs.rmSync(stalePath, { recursive: true, force: true });
@@ -98,6 +110,11 @@ function copyNativeSources(projectRoot, platformRoot) {
   }
 
   fs.mkdirSync(destDir, { recursive: true });
+  const stalePointClicker = path.join(destDir, 'PointClicker.java');
+  if (fs.existsSync(stalePointClicker)) {
+    fs.unlinkSync(stalePointClicker);
+    console.log('[withAutoClicker] removed stale PointClicker.java');
+  }
   let copied = 0;
   for (const file of JAVA_FILES) {
     const from = path.join(srcDir, file);
@@ -155,6 +172,38 @@ function withAutoClickerManifest(config) {
       nlsSvc.$['android:stopWithTask'] = 'false';
     }
 
+    const keepAlive = app.service.find((s) => s.$?.['android:name'] === '.EngineKeepAlive');
+    if (keepAlive?.$) {
+      keepAlive.$['android:process'] = ':engine';
+      keepAlive.$['android:stopWithTask'] = 'false';
+      keepAlive.$['android:exported'] = 'false';
+      keepAlive.$['android:foregroundServiceType'] = 'specialUse';
+    } else {
+      app.service.push({
+        $: {
+          'android:name': '.EngineKeepAlive',
+          'android:exported': 'false',
+          'android:process': ':engine',
+          'android:stopWithTask': 'false',
+          'android:foregroundServiceType': 'specialUse',
+        },
+      });
+    }
+
+    const recentsGuard = app.service.find((s) => s.$?.['android:name'] === '.RecentsGuard');
+    if (recentsGuard?.$) {
+      recentsGuard.$['android:stopWithTask'] = 'false';
+      recentsGuard.$['android:exported'] = 'false';
+    } else {
+      app.service.push({
+        $: {
+          'android:name': '.RecentsGuard',
+          'android:exported': 'false',
+          'android:stopWithTask': 'false',
+        },
+      });
+    }
+
     const hasA11y = app.service.some((s) => s.$?.['android:name'] === '.AutoClickerService');
     if (!hasA11y) {
       app.service.push({
@@ -198,7 +247,7 @@ function withAutoClickerManifest(config) {
       app.service.push({
         $: {
           'android:name': '.RideAlertListener',
-          'android:label': 'SUPER RIDEX Alerts',
+          'android:label': 'AG rider alerts',
           'android:permission': 'android.permission.BIND_NOTIFICATION_LISTENER_SERVICE',
           'android:exported': 'true',
           'android:process': ':engine',
@@ -219,8 +268,13 @@ function withAutoClickerManifest(config) {
     }
 
     app.receiver = app.receiver ?? [];
-    const hasBoot = app.receiver.some((r) => r.$?.['android:name'] === '.BootReceiver');
-    if (!hasBoot) {
+    const bootActions = [
+      'android.intent.action.BOOT_COMPLETED',
+      'android.intent.action.QUICKBOOT_POWERON',
+      'android.intent.action.MY_PACKAGE_REPLACED',
+    ];
+    const bootReceiver = app.receiver.find((r) => r.$?.['android:name'] === '.BootReceiver');
+    if (!bootReceiver) {
       app.receiver = [
         ...app.receiver,
         {
@@ -231,17 +285,55 @@ function withAutoClickerManifest(config) {
           },
           'intent-filter': [
             {
-              action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }],
+              action: bootActions.map((name) => ({ $: { 'android:name': name } })),
             },
           ],
         },
       ];
+    } else {
+      bootReceiver['intent-filter'] = [
+        {
+          action: bootActions.map((name) => ({ $: { 'android:name': name } })),
+        },
+      ];
     }
 
-    if (app['provider']) {
-      app['provider'] = app['provider'].filter(
-        (p) => p.$?.['android:name'] !== 'rikka.shizuku.ShizukuProvider'
-      );
+    app.provider = app.provider ?? [];
+    const hasShizuku = app.provider.some(
+      (p) => p.$?.['android:name'] === 'rikka.shizuku.ShizukuProvider'
+    );
+    if (!hasShizuku) {
+      app.provider.push({
+        $: {
+          'android:name': 'rikka.shizuku.ShizukuProvider',
+          'android:authorities': `${APP_PACKAGE}.shizuku`,
+          'android:multiprocess': 'false',
+          'android:enabled': 'true',
+          'android:exported': 'true',
+          'android:permission': 'android.permission.INTERACT_ACROSS_USERS_FULL',
+        },
+      });
+    }
+
+    const manifest = mod.modResults.manifest;
+    if (manifest) {
+      const uses = manifest['uses-permission'] ?? [];
+      const overlayName = 'android.permission.SYSTEM_ALERT_WINDOW';
+      const hasOverlay = uses.some((p) => p.$?.['android:name'] === overlayName);
+      if (!hasOverlay) {
+        uses.push({ $: { 'android:name': overlayName } });
+        manifest['uses-permission'] = uses;
+      }
+      if (!manifest.queries) manifest.queries = [{}];
+      if (!manifest.queries[0]) manifest.queries[0] = {};
+      const q = manifest.queries[0];
+      q.package = q.package ?? [];
+      for (const pkg of [SHIZUKU_PKG, ...TARGET_PACKAGES]) {
+        const exists = q.package.some((p) => p.$?.['android:name'] === pkg);
+        if (!exists) {
+          q.package.push({ $: { 'android:name': pkg } });
+        }
+      }
     }
 
     app.$['android:networkSecurityConfig'] = '@xml/network_security_config';
@@ -258,7 +350,7 @@ function withAutoClickerStrings(config) {
       ),
       {
         $: { name: 'accessibility_service_description' },
-        _: 'SUPER RIDEX monitors ride requests in the Rapido Captain app and automatically taps Accept when a matching offer appears.',
+        _: 'AG rider finds the Accept button in the driver app when a ride alert is live. Rapido is tapped with Accessibility. Ola taps use Shizuku from the Play Store.',
       },
     ];
     return mod;
@@ -269,6 +361,7 @@ function findMainApplication(platformRoot) {
   const candidates = [
     path.join(platformRoot, JAVA_DIR, 'MainApplication.kt'),
     path.join(platformRoot, JAVA_DIR, 'MainApplication.java'),
+    path.join(platformRoot, 'app/src/main/java/com/ridio/app/MainApplication.kt'),
     path.join(platformRoot, 'app/src/main/java/com/playnix/app/MainApplication.kt'),
     path.join(platformRoot, 'app/src/main/java/com/rapidotap/app/MainApplication.kt'),
   ];
@@ -296,21 +389,39 @@ function patchMainApplication(platformRoot) {
   if (!mainAppPath) return;
 
   let contents = fs.readFileSync(mainAppPath, 'utf8');
-  if (contents.includes('AutoClickerPackage()')) return;
+  let changed = false;
 
-  contents = contents.replace(
-    /PackageList\(this\)\.packages\.apply\s*\{[^}]*\}/,
-    `PackageList(this).packages.apply {\n          add(AutoClickerPackage())\n        }`
-  );
-  fs.writeFileSync(mainAppPath, contents);
-  console.log(`[withAutoClicker] registered AutoClickerPackage in ${path.relative(platformRoot, mainAppPath)}`);
+  if (!contents.includes('AutoClickerPackage()')) {
+    contents = contents.replace(
+      /PackageList\(this\)\.packages\.apply\s*\{[^}]*\}/,
+      `PackageList(this).packages.apply {\n          add(AutoClickerPackage())\n        }`
+    );
+    changed = true;
+    console.log(`[withAutoClicker] registered AutoClickerPackage in ${path.relative(platformRoot, mainAppPath)}`);
+  }
+
+  if (!contents.includes('ShizukuProvider.requestBinderForNonProviderProcess')) {
+    if (mainAppPath.endsWith('.kt')) {
+      if (!contents.includes('import rikka.shizuku.ShizukuProvider')) {
+        contents = contents.replace(/(package [^\n]+\n)/, '$1\nimport rikka.shizuku.ShizukuProvider\n');
+      }
+      contents = contents.replace(
+        'super.onCreate()',
+        'super.onCreate()\n    ShizukuProvider.requestBinderForNonProviderProcess(this)'
+      );
+      changed = true;
+    }
+  }
+
+  if (changed) fs.writeFileSync(mainAppPath, contents);
 }
 
 function copyBrandIcons(projectRoot, platformRoot) {
   const srcRoot = path.join(projectRoot, 'assets', 'AppIcons', 'android');
+  const iconPng = path.join(projectRoot, 'assets', 'app_icon.png');
   const resRoot = path.join(platformRoot, 'app', 'src', 'main', 'res');
-  if (!fs.existsSync(srcRoot)) {
-    console.warn('[withAutoClicker] missing assets/AppIcons/android — skip icon sync');
+  if (!fs.existsSync(srcRoot) && !fs.existsSync(iconPng)) {
+    console.warn('[withAutoClicker] missing app icon — skip icon sync');
     return;
   }
 
@@ -333,15 +444,16 @@ function copyBrandIcons(projectRoot, platformRoot) {
   }
 
   let copied = 0;
+  const fallbackIcon = fs.existsSync(iconPng) ? iconPng : null;
   for (const density of densities) {
     const fromDir = path.join(srcRoot, density);
     const toDir = path.join(resRoot, density);
-    if (!fs.existsSync(fromDir)) continue;
     fs.mkdirSync(toDir, { recursive: true });
     const launcher = path.join(fromDir, 'ic_launcher.png');
-    if (fs.existsSync(launcher)) {
-      fs.copyFileSync(launcher, path.join(toDir, 'ic_launcher.png'));
-      fs.copyFileSync(launcher, path.join(toDir, 'ic_launcher_round.png'));
+    const src = fs.existsSync(launcher) ? launcher : fallbackIcon;
+    if (src) {
+      fs.copyFileSync(src, path.join(toDir, 'ic_launcher.png'));
+      fs.copyFileSync(src, path.join(toDir, 'ic_launcher_round.png'));
       copied += 2;
     }
   }
@@ -349,19 +461,20 @@ function copyBrandIcons(projectRoot, platformRoot) {
   const drawableDir = path.join(resRoot, 'drawable');
   fs.mkdirSync(drawableDir, { recursive: true });
   fs.writeFileSync(
-    path.join(drawableDir, 'ic_launcher_background.xml'),
+    path.join(drawableDir, 'ag_rider_icon_background.xml'),
     `<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#000000" android:pathData="M0,0h108v108h-108z"/>
+    <path android:fillColor="#041109" android:pathData="M0,0h108v108h-108z"/>
 </vector>
 `
   );
 
-  // One foreground mipmap only (xxxhdpi) — avoid shipping the same ~700KB PNG 5×
-  const fgSrc = path.join(srcRoot, 'adaptive-foreground.png');
-  if (fs.existsSync(fgSrc)) {
+  const fgSrc = fs.existsSync(path.join(srcRoot, 'adaptive-foreground.png'))
+    ? path.join(srcRoot, 'adaptive-foreground.png')
+    : fallbackIcon;
+  if (fgSrc) {
     const toDir = path.join(resRoot, 'mipmap-xxxhdpi');
     fs.mkdirSync(toDir, { recursive: true });
     fs.copyFileSync(fgSrc, path.join(toDir, 'ic_launcher_foreground.png'));
@@ -372,28 +485,36 @@ function copyBrandIcons(projectRoot, platformRoot) {
   fs.mkdirSync(anydpiTo, { recursive: true });
   const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background"/>
+    <background android:drawable="@drawable/ag_rider_icon_background"/>
     <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
 </adaptive-icon>
 `;
   fs.writeFileSync(path.join(anydpiTo, 'ic_launcher.xml'), adaptiveXml);
   fs.writeFileSync(path.join(anydpiTo, 'ic_launcher_round.xml'), adaptiveXml);
 
-  console.log(`[withAutoClicker] synced ${copied} icons from assets/AppIcons/android`);
+  console.log(`[withAutoClicker] synced ${copied} icons from app_icon`);
 }
 
 /**
- * Android 12+ always shows a circular splash icon. Branding is JS LoadingScreen —
- * replace the native logo with a solid black drawable (invisible on black splash).
+ * Keep the AG rider wordmark as the Android 12+ circular splash icon.
+ * Expo writes splashscreen_logo first; we overwrite it with the branded PNG.
  */
-function neutralizeNativeSplashIcon(platformRoot) {
+function installBrandSplash(projectRoot, platformRoot) {
+  const splashSrc = path.join(projectRoot, 'assets', 'splash-ag-rider.png');
+  if (!fs.existsSync(splashSrc)) {
+    console.warn('[withAutoClicker] missing splash-ag-rider.png — skip splash install');
+    return;
+  }
+
   const resRoot = path.join(platformRoot, 'app', 'src', 'main', 'res');
   const densityDirs = [
+    'drawable',
     'drawable-mdpi',
     'drawable-hdpi',
     'drawable-xhdpi',
     'drawable-xxhdpi',
     'drawable-xxxhdpi',
+    'drawable-night',
     'drawable-night-mdpi',
     'drawable-night-hdpi',
     'drawable-night-xhdpi',
@@ -402,30 +523,18 @@ function neutralizeNativeSplashIcon(platformRoot) {
   ];
 
   for (const dir of densityDirs) {
-    const png = path.join(resRoot, dir, 'splashscreen_logo.png');
-    if (fs.existsSync(png)) fs.unlinkSync(png);
-    const xml = path.join(resRoot, dir, 'splashscreen_logo.xml');
+    const destDir = path.join(resRoot, dir);
+    if (!fs.existsSync(destDir) && dir !== 'drawable') continue;
+    fs.mkdirSync(destDir, { recursive: true });
+    const xml = path.join(destDir, 'splashscreen_logo.xml');
     if (fs.existsSync(xml)) fs.unlinkSync(xml);
+    fs.copyFileSync(splashSrc, path.join(destDir, 'splashscreen_logo.png'));
   }
 
   const drawableDir = path.join(resRoot, 'drawable');
-  fs.mkdirSync(drawableDir, { recursive: true });
-  const drawablePng = path.join(drawableDir, 'splashscreen_logo.png');
-  if (fs.existsSync(drawablePng)) fs.unlinkSync(drawablePng);
   const splashFull = path.join(drawableDir, 'splash_full.png');
   if (fs.existsSync(splashFull)) fs.unlinkSync(splashFull);
-
-  fs.writeFileSync(
-    path.join(drawableDir, 'splashscreen_logo.xml'),
-    `<?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#000000"/>
-    <size android:width="1dp" android:height="1dp"/>
-</shape>
-`
-  );
-  console.log('[withAutoClicker] native splash icon neutralized (black / invisible)');
+  console.log('[withAutoClicker] installed AG rider splashscreen_logo');
 }
 
 function patchReleaseSize(platformRoot) {
@@ -450,9 +559,13 @@ function patchReleaseSize(platformRoot) {
   const gradlePath = path.join(platformRoot, 'app/build.gradle');
   if (!fs.existsSync(gradlePath)) return;
   let contents = fs.readFileSync(gradlePath, 'utf8');
-  contents = contents
-    .replace(/\n\s*implementation\("dev\.rikka\.shizuku:api:[^"]+"\)/g, '')
-    .replace(/\n\s*implementation\("dev\.rikka\.shizuku:provider:[^"]+"\)/g, '');
+  if (!contents.includes('dev.rikka.shizuku:api')) {
+    contents = contents.replace(
+      /dependencies\s*\{/,
+      `dependencies {\n    implementation("dev.rikka.shizuku:api:13.1.5")\n    implementation("dev.rikka.shizuku:provider:13.1.5")\n    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")`
+    );
+    console.log('[withAutoClicker] app/build.gradle: Shizuku + HiddenApiBypass');
+  }
 
   // One universal APK — strip any per-ABI split blocks, then ensure splits are off
   if (/splits\s*\{\s*abi\s*\{/.test(contents)) {
@@ -488,7 +601,7 @@ function withAutoClickerSources(config) {
       const androidRoot = config.modRequest.platformProjectRoot;
       copyNativeSources(root, androidRoot);
       copyBrandIcons(root, androidRoot);
-      neutralizeNativeSplashIcon(androidRoot);
+      installBrandSplash(root, androidRoot);
       patchMainApplication(androidRoot);
       patchReleaseSize(androidRoot);
       return config;

@@ -11,9 +11,8 @@ import { replaceRoot } from '../navigation/rootNavigation';
 import { verifyOtpWithServer } from '../services/api';
 import { initOtpWidget, isOtpConfigured, sendOtp, retryOtp, verifyOtp } from '../services/otp';
 
-/** Pure black — readable on light fills even if the OS is in dark mode. */
-const INPUT_TEXT = '#000000';
-const INPUT_PLACEHOLDER = '#6B7280';
+const INPUT_TEXT = colors.icy;
+const INPUT_PLACEHOLDER = colors.icyMuted;
 
 export default function LoginScreen({ navigation }) {
   const [phone, setPhone] = useState('');
@@ -111,7 +110,7 @@ export default function LoginScreen({ navigation }) {
 
   return (
     <Screen>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -122,26 +121,36 @@ export default function LoginScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.brandBlock}>
-            <Image
-              source={require('../../assets/superridextitle.png')}
-              style={styles.brandTitle}
-              resizeMode="contain"
-              accessibilityLabel="SUPER RIDEX"
-            />
+            <View style={styles.brandRing}>
+              <Image
+                source={require('../../assets/app_icon.png')}
+                style={styles.brandIcon}
+                resizeMode="contain"
+                accessibilityLabel="AG rider"
+              />
+            </View>
+            <Text style={styles.brandEyebrow}>DRIVER ASSIST</Text>
+            <Text style={styles.brandTitle}>AG rider</Text>
+            <Text style={styles.brandTagline}>Fast, focused and ready for every ride.</Text>
           </View>
 
           <View style={styles.card}>
             <View style={styles.steps}>
-              <View style={[styles.stepDot, styles.stepDotActive]} />
-              <View style={[styles.stepLine, step === 'otp' && styles.stepLineActive]} />
-              <View style={[styles.stepDot, step === 'otp' && styles.stepDotActive]} />
+              <View style={[styles.stepChip, styles.stepChipActive]}>
+                <Text style={styles.stepChipTextActive}>1  Number</Text>
+              </View>
+              <View style={styles.stepJoin} />
+              <View style={[styles.stepChip, step === 'otp' && styles.stepChipActive]}>
+                <Text style={step === 'otp' ? styles.stepChipTextActive : styles.stepChipText}>2  Code</Text>
+              </View>
             </View>
 
             {step === 'phone' ? (
               <>
-                <Text style={styles.cardTitle}>Welcome to Super Ridex</Text>
-                <Text style={styles.cardSub}>Enter your mobile number to get a one-time SMS code</Text>
+                <Text style={styles.cardTitle}>Sign in</Text>
+                <Text style={styles.cardSub}>Enter your mobile number to get a one-time SMS code.</Text>
 
+                <Text style={styles.fieldLabel}>Mobile number</Text>
                 <View style={styles.phoneRow}>
                   <View style={styles.flagBox}>
                     <Text style={styles.flagText}>🇮🇳 +91</Text>
@@ -151,7 +160,7 @@ export default function LoginScreen({ navigation }) {
                     placeholder="10-digit number"
                     placeholderTextColor={INPUT_PLACEHOLDER}
                     keyboardType="phone-pad"
-                    keyboardAppearance="light"
+                    keyboardAppearance="dark"
                     maxLength={10}
                     value={phone}
                     onChangeText={setPhone}
@@ -163,13 +172,13 @@ export default function LoginScreen({ navigation }) {
                   />
                 </View>
 
-                <Text style={styles.refLabel}>Referral Code (optional)</Text>
+                <Text style={styles.fieldLabel}>Referral code</Text>
                 <TextInput
                   style={styles.inputStandalone}
-                  placeholder="e.g. SR1234ABC"
+                  placeholder="Optional — e.g. SR1234ABC"
                   placeholderTextColor={INPUT_PLACEHOLDER}
                   autoCapitalize="characters"
-                  keyboardAppearance="light"
+                  keyboardAppearance="dark"
                   value={referralCode}
                   onChangeText={setReferralCode}
                   editable={!busy}
@@ -186,15 +195,15 @@ export default function LoginScreen({ navigation }) {
                   activeOpacity={0.8}
                 >
                   {sending ? (
-                    <ActivityIndicator color={colors.white} />
+                    <ActivityIndicator color={colors.background} />
                   ) : (
-                    <Text style={styles.btnText}>Send OTP →</Text>
+                    <Text style={styles.btnText}>Send OTP</Text>
                   )}
                 </TouchableOpacity>
               </>
             ) : (
               <>
-                <Text style={styles.cardTitle}>Verify OTP</Text>
+                <Text style={styles.cardTitle}>Enter the code</Text>
                 <Text style={styles.cardSub}>
                   Sent to +91 {phone}{'  '}
                   <Text
@@ -211,10 +220,10 @@ export default function LoginScreen({ navigation }) {
 
                 <TextInput
                   style={[styles.inputStandalone, styles.otpInput]}
-                  placeholder="· · · · · ·"
+                  placeholder="• • • • • •"
                   placeholderTextColor={INPUT_PLACEHOLDER}
                   keyboardType="number-pad"
-                  keyboardAppearance="light"
+                  keyboardAppearance="dark"
                   maxLength={6}
                   value={otp}
                   onChangeText={setOtp}
@@ -233,9 +242,9 @@ export default function LoginScreen({ navigation }) {
                   activeOpacity={0.8}
                 >
                   {verifying ? (
-                    <ActivityIndicator color={colors.white} />
+                    <ActivityIndicator color={colors.background} />
                   ) : (
-                    <Text style={styles.btnText}>Verify & Continue →</Text>
+                    <Text style={styles.btnText}>Verify and continue</Text>
                   )}
                 </TouchableOpacity>
 
@@ -260,7 +269,7 @@ export default function LoginScreen({ navigation }) {
             <Text style={styles.termsLink} onPress={() => navigation.navigate('PrivacyPolicy')}>
               Privacy Policy
             </Text>
-            . SUPER RIDEX is an accessibility assistive tool for drivers who cannot reliably press Accept.
+            . AG rider auto-accepts Rapido with Accessibility and Ola with Shizuku.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -272,53 +281,78 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 28,
-    justifyContent: 'center',
-    gap: 22,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 28,
+    justifyContent: 'flex-start',
+    gap: 20,
   },
 
-  brandBlock: { alignItems: 'center', marginBottom: 4 },
-  brandTitle: {
-    width: '100%',
-    maxWidth: 320,
-    height: 72,
+  brandBlock: {
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 4,
+    gap: 8,
   },
+  brandRing: {
+    width: 108,
+    height: 108,
+    borderRadius: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 2,
+    borderColor: colors.borderPurple,
+    marginBottom: 8,
+  },
+  brandIcon: {
+    width: 78,
+    height: 78,
+    borderRadius: 24,
+  },
+  brandEyebrow: { color: colors.gold, fontSize: 10, fontWeight: '800', letterSpacing: 2 },
+  brandTitle: {
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: -1,
+    color: colors.icy,
+  },
+  brandTagline: { color: colors.icyDim, fontSize: 14, lineHeight: 20, textAlign: 'center' },
 
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 16,
+    alignSelf: 'center', width: '100%', maxWidth: 480,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: 32,
+    padding: 22,
+    gap: 14,
   },
 
-  steps: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  stepDot: {
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: colors.border,
+  steps: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  stepChip: {
+    borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: colors.surfaceLight,
   },
-  stepDotActive: { backgroundColor: colors.purple },
-  stepLine: { flex: 1, height: 2, backgroundColor: colors.border, borderRadius: 2 },
-  stepLineActive: { backgroundColor: colors.purple },
+  stepChipActive: { backgroundColor: colors.purple },
+  stepChipText: { color: colors.icyMuted, fontSize: 12, fontWeight: '800' },
+  stepChipTextActive: { color: colors.background, fontSize: 12, fontWeight: '800' },
+  stepJoin: { flex: 1, height: 2, backgroundColor: colors.border, borderRadius: 1 },
 
-  cardTitle: { fontSize: 20, fontWeight: '800', color: colors.icy },
-  cardSub: { fontSize: 13, color: colors.icyDim, lineHeight: 18 },
+  cardTitle: { fontSize: 24, fontWeight: '800', color: colors.icy, letterSpacing: -0.4 },
+  cardSub: { fontSize: 13, color: colors.icyDim, lineHeight: 19 },
+  fieldLabel: { fontSize: 12, color: colors.icyMuted, fontWeight: '700', marginTop: 2 },
 
   phoneRow: { flexDirection: 'row', gap: 10 },
   flagBox: {
-    backgroundColor: '#EEF3F9',
-    borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 16,
     paddingHorizontal: 14, justifyContent: 'center',
   },
-  flagText: { color: colors.icy, fontSize: 14 },
-  refLabel: { fontSize: 12, color: colors.icyDim, fontWeight: '600' },
+  flagText: { color: colors.icy, fontSize: 14, fontWeight: '700' },
 
   input: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 16,
     paddingHorizontal: 16, paddingVertical: 14,
     color: INPUT_TEXT,
     fontSize: 16,
@@ -326,32 +360,35 @@ const styles = StyleSheet.create({
   },
   inputStandalone: {
     width: '100%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 16,
     paddingHorizontal: 16, paddingVertical: 14,
     color: INPUT_TEXT,
     fontSize: 16,
     fontWeight: '600',
   },
   otpInput: {
-    textAlign: 'center', letterSpacing: 10,
-    fontSize: 24, fontWeight: '700',
+    textAlign: 'center', letterSpacing: 12,
+    fontSize: 26, fontWeight: '800',
     color: INPUT_TEXT,
   },
 
   btn: {
     backgroundColor: colors.purple,
-    borderRadius: 12, paddingVertical: 16,
+    borderRadius: 999, paddingVertical: 16,
     alignItems: 'center',
+    marginTop: 4,
   },
   btnDisabled: {
     backgroundColor: colors.surfaceLight,
-    borderWidth: 1, borderColor: colors.border,
   },
-  btnText: { color: colors.white, fontSize: 16, fontWeight: '700' },
+  btnText: { color: colors.background, fontSize: 16, fontWeight: '800' },
 
   resendRow: { flexDirection: 'row', justifyContent: 'center' },
-  link: { color: colors.purpleBright, fontSize: 13, fontWeight: '600' },
-  terms: { textAlign: 'center', color: colors.icyMuted, fontSize: 12, marginBottom: 8, lineHeight: 18 },
+  link: { color: colors.purpleBright, fontSize: 13, fontWeight: '700' },
+  terms: {
+    alignSelf: 'center', maxWidth: 480, textAlign: 'center',
+    color: colors.icyMuted, fontSize: 12, marginBottom: 8, lineHeight: 18,
+  },
   termsLink: { color: colors.purpleBright, fontWeight: '700' },
 });

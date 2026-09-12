@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  StatusBar, ScrollView, ActivityIndicator, Alert,
+  StatusBar, ScrollView, ActivityIndicator, Alert, Linking, Image,
 } from 'react-native';
 import Screen from '../components/Screen';
 import { colors } from '../theme/colors';
-import { getStoredUser, saveUser } from '../utils/storage';
-import { openCheckout, isPaymentCancelled } from '../services/payment';
-import { getSubscriptionStatus, getSubscriptionPlans } from '../services/api';
+import AppHeader, { SectionTitle } from '../components/AppHeader';
+import { getStoredUser } from '../utils/storage';
+import { getPaymentContact, getSubscriptionPlans } from '../services/api';
 import { replaceRoot } from '../navigation/rootNavigation';
 
 const PLAN_STYLE = {
@@ -23,7 +23,7 @@ const PLAN_STYLE = {
     badge: 'MOST POPULAR',
     accent: colors.purple,
     accentGlow: colors.purpleGlow,
-    features: ['Auto-accept rides', 'Nuclear mode (0ms)', 'All supported apps', 'Priority support'],
+    features: ['Auto-accept rides', 'Fastest 0ms tap', 'All supported apps', 'Priority support'],
   },
   quarterly: {
     popular: false,
@@ -57,7 +57,8 @@ export default function PlansScreen({ navigation }) {
   const [plans, setPlans] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [paying, setPaying] = useState(false);
+  const [openingTelegram, setOpeningTelegram] = useState(false);
+  const [paymentContact, setPaymentContact] = useState(null);
   const plan = plans.find(p => p.id === selected);
 
   const loadPlans = useCallback(async () => {
@@ -80,6 +81,9 @@ export default function PlansScreen({ navigation }) {
 
   useEffect(() => {
     loadPlans();
+    getPaymentContact()
+      .then(setPaymentContact)
+      .catch(() => setPaymentContact(null));
   }, [loadPlans]);
 
   const handlePay = async () => {
@@ -91,45 +95,24 @@ export default function PlansScreen({ navigation }) {
       return;
     }
 
-    setPaying(true);
-    try {
-      const result = await openCheckout(plan.id, user.phone, {
-        description: plan.description,
-        label: plan.label,
-      });
-      if (!result?.subscriptionEnd && !result?.success) {
-        throw new Error('Payment verified but subscription was not activated. Contact support.');
-      }
-      let remote = null;
-      try {
-        remote = await getSubscriptionStatus(user.phone);
-      } catch {
-        // verify already succeeded
-      }
-      const subscriptionEnd = remote?.subscriptionEnd || result.subscriptionEnd;
-      const isActive = remote?.active ?? (subscriptionEnd && new Date(subscriptionEnd) > new Date());
-      if (!isActive && !subscriptionEnd) {
-        throw new Error(
-          'Payment received but subscription not active yet. Pull to refresh or contact support.'
-        );
-      }
-      await saveUser({
-        ...user,
-        active: isActive,
-        planType: remote?.planType || plan.id,
-        subscriptionEnd,
-        subscriptionStart: remote?.subscriptionStart || new Date().toISOString(),
-      });
-      navigation.replace('PermissionsSetup');
-    } catch (err) {
-      if (isPaymentCancelled(err)) return;
-      const msg = err.message || 'Could not complete payment.';
+    const telegramUrl = paymentContact?.telegramUrl;
+    if (!telegramUrl) {
       Alert.alert(
-        'Payment Issue',
-        msg + (msg.includes('signature') ? '\n\nCheck Railway: RAZORPAY_KEY_SECRET must match your live Key ID.' : '')
+        'Payment contact unavailable',
+        'The Telegram payment link has not been configured yet. Please try again later.'
       );
+      return;
+    }
+
+    setOpeningTelegram(true);
+    try {
+      const supported = await Linking.canOpenURL(telegramUrl);
+      if (!supported) throw new Error('Telegram link cannot be opened on this device.');
+      await Linking.openURL(telegramUrl);
+    } catch (err) {
+      Alert.alert('Unable to open Telegram', err.message || 'Please try again later.');
     } finally {
-      setPaying(false);
+      setOpeningTelegram(false);
     }
   };
 
@@ -159,14 +142,16 @@ export default function PlansScreen({ navigation }) {
 
   return (
     <Screen>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Choose a Plan</Text>
-        <Text style={styles.headerSub}>Start with a 3-day trial or pick a longer plan</Text>
-      </View>
+      <AppHeader
+        eyebrow="MEMBERSHIP"
+        title="Pick a plan"
+        subtitle="Pay on Telegram. Your access starts after confirmation."
+      />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <SectionTitle label="PLANS" title="Select a duration" />
         {plans.map(p => {
           const isSelected = selected === p.id;
           return (
@@ -174,49 +159,44 @@ export default function PlansScreen({ navigation }) {
               key={p.id}
               style={[
                 styles.card,
-                isSelected && { borderColor: p.accent, backgroundColor: p.accentGlow, borderWidth: 2.5 },
+                isSelected && { backgroundColor: p.accentGlow },
               ]}
               onPress={() => setSelected(p.id)}
               activeOpacity={0.85}
             >
-              {p.popular && (
-                <View style={[styles.popularBadge, { backgroundColor: p.accent }]}>
-                  <Text style={styles.popularText}>{p.badge || 'MOST POPULAR'}</Text>
-                </View>
-              )}
-
-              <View style={styles.cardHeader}>
-                <View>
-                  <Text style={styles.planLabel}>{p.label}</Text>
-                  <Text style={styles.planDuration}>{p.duration}</Text>
-                </View>
-                <View style={styles.priceBlock}>
-                  <Text style={[styles.planPrice, { color: p.accent }]}>{p.price}</Text>
-                  <Text style={styles.planPerDay}>{p.perDay}</Text>
-                </View>
+              <View style={styles.priceRail}>
+                <Text style={[styles.planPrice, { color: isSelected ? p.accent : colors.icy }]}>{p.price}</Text>
+                <Text style={styles.planPerDay}>{p.perDay}</Text>
               </View>
-
-              <View style={styles.divider} />
-
-              {p.features.map((f, i) => (
-                <View key={i} style={styles.featureRow}>
-                  <Text style={[styles.featureTick, { color: p.accent }]}>✓</Text>
-                  <Text style={styles.featureText}>{f}</Text>
+              <View style={styles.cardBody}>
+                <View style={styles.cardHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.planLabel}>{p.label}</Text>
+                    <Text style={styles.planDuration}>{p.duration}</Text>
+                  </View>
+                  {p.popular ? (
+                    <View style={[styles.popularBadge, { backgroundColor: p.accent }]}>
+                      <Text style={styles.popularText}>{p.badge || 'POPULAR'}</Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.radio, isSelected && { backgroundColor: p.accent, borderColor: p.accent }]}>
+                      {isSelected && <View style={styles.radioDot} />}
+                    </View>
+                  )}
                 </View>
-              ))}
-
-              <View style={styles.radioRow}>
-                <View style={[styles.radio, isSelected && { borderColor: p.accent, width: 28, height: 28, borderRadius: 14 }]}>
-                  {isSelected && <View style={[styles.radioDot, { backgroundColor: p.accent, width: 14, height: 14, borderRadius: 7 }]} />}
+                <View style={styles.featureWrap}>
+                  {p.features.map((f, i) => (
+                    <View key={i} style={styles.featureChip}>
+                      <Text style={styles.featureText}>{f}</Text>
+                    </View>
+                  ))}
                 </View>
-                <Text style={[styles.radioLabel, isSelected && { color: p.accent, fontSize: 15 }]}>
-                  {isSelected ? 'Selected' : 'Select plan'}
-                </Text>
               </View>
             </TouchableOpacity>
           );
         })}
 
+        <SectionTitle label="YOUR SELECTION" title="Plan summary" />
         <View style={styles.summary}>
           <Text style={styles.summaryTitle}>Order Summary</Text>
           <View style={styles.summaryRow}>
@@ -232,23 +212,41 @@ export default function PlansScreen({ navigation }) {
         <TouchableOpacity
           style={[
             styles.payBtn,
-            { backgroundColor: plan?.accent },
-            paying && { opacity: 0.7 },
+            { backgroundColor: plan?.accent || colors.purple },
+            openingTelegram && { opacity: 0.7 },
           ]}
           onPress={handlePay}
-          disabled={paying || !plan}
+          disabled={openingTelegram || !plan}
           activeOpacity={0.85}
         >
-          {paying ? (
-            <ActivityIndicator color={colors.white} size="large" />
+          {openingTelegram ? (
+            <ActivityIndicator color={colors.background} size="large" />
           ) : (
-            <Text style={styles.payBtnText}>Pay {plan?.price} — Activate Now</Text>
+            <Text style={styles.payBtnText}>Continue on Telegram — {plan?.price}</Text>
           )}
         </TouchableOpacity>
+
+        <View style={styles.telegramNote}>
+          <Text style={styles.telegramNoteTitle}>Payment assistance on Telegram</Text>
+          <Text style={styles.telegramNoteText}>
+            Send your mobile number and selected plan to the payment contact. Your plan will be activated after confirmation.
+          </Text>
+        </View>
 
         <TouchableOpacity onPress={() => replaceRoot(navigation, 'Main')} style={styles.skipBtn}>
           <Text style={styles.skipText}>Skip for now →</Text>
         </TouchableOpacity>
+
+        {!!paymentContact?.imageUrl && (
+          <View style={styles.paymentImageCard}>
+            <Image
+              source={{ uri: paymentContact.imageUrl }}
+              style={styles.paymentImage}
+              resizeMode="contain"
+              accessibilityLabel="Payment information"
+            />
+          </View>
+        )}
       </ScrollView>
     </Screen>
   );
@@ -257,58 +255,64 @@ export default function PlansScreen({ navigation }) {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
   loadingText: { color: colors.icyDim, fontSize: 15, fontWeight: '600' },
-  retryBtn: { paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.purple, borderRadius: 8 },
-  retryText: { color: colors.white, fontWeight: '700' },
-  header: {
-    paddingHorizontal: 24, paddingTop: 24, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  headerTitle: { fontSize: 26, fontWeight: '900', color: colors.icy },
-  headerSub: { fontSize: 13, color: colors.icyDim, marginTop: 4 },
-  scroll: { padding: 20, gap: 16, paddingBottom: 32 },
+  retryBtn: { paddingHorizontal: 22, paddingVertical: 12, backgroundColor: colors.purple, borderRadius: 999 },
+  retryText: { color: colors.background, fontWeight: '800' },
+  scroll: { paddingHorizontal: 20, paddingTop: 8, gap: 12, paddingBottom: 32 },
 
   card: {
-    backgroundColor: colors.surface, borderRadius: 14, padding: 22,
-    borderWidth: 1, borderColor: colors.border, gap: 12,
+    backgroundColor: colors.surfaceCard, borderRadius: 26,
+    flexDirection: 'row', overflow: 'hidden',
   },
-  popularBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
-  popularText: { color: colors.white, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  planLabel: { fontSize: 22, fontWeight: '900', color: colors.icy },
-  planDuration: { fontSize: 13, color: colors.icyDim, marginTop: 4 },
-  priceBlock: { alignItems: 'flex-end' },
-  planPrice: { fontSize: 30, fontWeight: '900' },
-  planPerDay: { fontSize: 12, color: colors.icyMuted, marginTop: 2 },
-  divider: { height: 1, backgroundColor: colors.border },
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  featureTick: { fontSize: 15, fontWeight: '900' },
-  featureText: { fontSize: 14, color: colors.icyDim },
-  radioRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
+  priceRail: {
+    width: 104, paddingVertical: 18, paddingHorizontal: 10,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surfaceLight,
+  },
+  planPrice: { fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  planPerDay: { fontSize: 11, color: colors.icyMuted, marginTop: 4, textAlign: 'center' },
+  cardBody: { flex: 1, padding: 16, gap: 12 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  planLabel: { fontSize: 18, fontWeight: '800', color: colors.icy },
+  planDuration: { fontSize: 12, color: colors.icyDim, marginTop: 3 },
+  popularBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  popularText: { color: colors.background, fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
+  featureWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  featureChip: {
+    backgroundColor: colors.surfaceLight, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5,
+  },
+  featureText: { fontSize: 11, color: colors.icyDim, fontWeight: '600' },
   radio: {
-    width: 24, height: 24, borderRadius: 12,
+    width: 22, height: 22, borderRadius: 11,
     borderWidth: 2, borderColor: colors.icyMuted,
     alignItems: 'center', justifyContent: 'center',
   },
-  radioDot: { width: 12, height: 12, borderRadius: 6 },
-  radioLabel: { fontSize: 14, color: colors.icyMuted, fontWeight: '700' },
+  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.background },
 
   summary: {
-    backgroundColor: colors.surface, borderRadius: 18, padding: 20,
-    borderWidth: 1, borderColor: colors.border, gap: 10,
+    backgroundColor: colors.surfaceCard, borderRadius: 24, padding: 18, gap: 10,
   },
   summaryTitle: { fontSize: 15, fontWeight: '800', color: colors.icy },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
   summaryLabel: { color: colors.icyDim, fontSize: 15 },
   summaryValue: { color: colors.icy, fontSize: 15, fontWeight: '700' },
   summaryTotalRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, marginTop: 4 },
-  summaryTotalLabel: { color: colors.icy, fontSize: 17, fontWeight: '800' },
-  summaryTotalValue: { fontSize: 24, fontWeight: '900' },
+  summaryTotalLabel: { color: colors.icy, fontSize: 16, fontWeight: '800' },
+  summaryTotalValue: { fontSize: 22, fontWeight: '800' },
 
   payBtn: {
-    borderRadius: 12, paddingVertical: 20, alignItems: 'center',
-    minHeight: 64,
+    borderRadius: 999, paddingVertical: 18, alignItems: 'center',
+    minHeight: 58,
   },
-  payBtnText: { color: colors.white, fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
+  payBtnText: { color: colors.background, fontSize: 16, fontWeight: '800' },
+  telegramNote: {
+    backgroundColor: colors.surfaceCard, borderRadius: 22, padding: 16, gap: 5,
+  },
+  telegramNoteTitle: { color: colors.purpleBright, fontSize: 14, fontWeight: '800' },
+  telegramNoteText: { color: colors.icyDim, fontSize: 12, lineHeight: 18 },
   skipBtn: { alignItems: 'center', paddingVertical: 10 },
   skipText: { color: colors.icyDim, fontSize: 14, fontWeight: '600' },
+  paymentImageCard: {
+    backgroundColor: colors.surfaceCard, borderRadius: 22, padding: 10, overflow: 'hidden',
+  },
+  paymentImage: { width: '100%', height: 280, borderRadius: 16 },
 });

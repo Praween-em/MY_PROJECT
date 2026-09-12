@@ -15,22 +15,36 @@ const KEYS = {
  * Shape: { phone, subscriptionStart, subscriptionEnd, planType, active }
  */
 export async function saveUser(user) {
-  await AsyncStorage.setItem(KEYS.USER, JSON.stringify(user));
+  try {
+    await AsyncStorage.setItem(KEYS.USER, JSON.stringify(user));
+  } catch (err) {
+    console.warn('saveUser failed:', err?.message || err);
+  }
 }
 
 /**
  * Retrieve persisted user object. Returns null if none exists.
  */
 export async function getStoredUser() {
-  const raw = await AsyncStorage.getItem(KEYS.USER);
-  return raw ? JSON.parse(raw) : null;
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.USER);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Clear user data (on logout).
  */
 export async function clearUser() {
-  await AsyncStorage.removeItem(KEYS.USER);
+  try {
+    await AsyncStorage.removeItem(KEYS.USER);
+  } catch {
+    /* ignore */
+  }
 }
 
 /**

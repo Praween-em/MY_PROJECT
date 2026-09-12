@@ -1,6 +1,8 @@
-package com.rapido.tap;
+package com.ridio.app;
 
 import android.app.Notification;
+import android.content.ComponentName;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.service.notification.NotificationListenerService;
@@ -23,16 +25,65 @@ public class RideAlertListener extends NotificationListenerService {
 
   @Override
   public void onListenerConnected() {
-    super.onListenerConnected();
-    AutoClickerConfig.init(this);
-    ServiceHealth.init(this);
-    Log.i(TAG, "NLS_CONNECTED enabled=" + AutoClickerConfig.isEnabled()
-        + " nuclear=" + AutoClickerConfig.isNuclearMode()
-        + " min=" + AutoClickerConfig.getMinPrice());
+    try {
+      super.onListenerConnected();
+      AutoClickerConfig.init(this);
+      ShizukuInput.attach(this);
+      Log.i(TAG, "NLS_CONNECTED enabled=" + AutoClickerConfig.isEnabled()
+          + " nuclear=" + AutoClickerConfig.isNuclearMode()
+          + " min=" + AutoClickerConfig.getMinPrice());
+      replayActiveRideNotifications();
+    } catch (Throwable t) {
+      Log.e(TAG, "NLS_CONNECT_CRASH " + t.getMessage(), t);
+    }
+  }
+
+  @Override
+  public void onListenerDisconnected() {
+    Log.w(TAG, "NLS_DISCONNECTED — requesting rebind");
+    try {
+      if (Build.VERSION.SDK_INT >= 24) {
+        requestRebind(new ComponentName(getApplicationContext(), RideAlertListener.class));
+      }
+    } catch (Throwable t) {
+      Log.w(TAG, "NLS_REBIND_FAIL " + t.getMessage());
+    }
+  }
+
+  /** After OEM unbind/rebind, re-arm any ride heads-up still in the shade. */
+  private void replayActiveRideNotifications() {
+    if (!AutoClickerConfig.peekEnabled()) return;
+    StatusBarNotification[] active;
+    try {
+      active = getActiveNotifications();
+    } catch (Throwable t) {
+      return;
+    }
+    if (active == null) return;
+    int n = 0;
+    for (StatusBarNotification sbn : active) {
+      if (sbn == null) continue;
+      String pkg = sbn.getPackageName();
+      if (pkg == null || !AutoClickerConfig.isPackageMonitored(pkg)) continue;
+      handleNotificationPosted(sbn);
+      n++;
+      if (n >= 8) break;
+    }
+    if (n > 0) {
+      Log.i(TAG, "NLS_REPLAY posted=" + n);
+    }
   }
 
   @Override
   public void onNotificationPosted(StatusBarNotification sbn) {
+    try {
+      handleNotificationPosted(sbn);
+    } catch (Throwable t) {
+      Log.e(TAG, "NLS_CRASH " + t.getMessage(), t);
+    }
+  }
+
+  private void handleNotificationPosted(StatusBarNotification sbn) {
     if (sbn == null) return;
 
     AutoClickerConfig.ensureInit(this);
@@ -43,7 +94,7 @@ public class RideAlertListener extends NotificationListenerService {
       if (now - lastSkipDisabledLogUptime >= SKIP_LOG_MIN_INTERVAL_MS) {
         lastSkipDisabledLogUptime = now;
         Log.w(TAG, "SKIP_DISABLED pkg=" + pkg
-            + " — Auto-accept OFF (turn ON in SUPER RIDEX Home)");
+            + " — Auto-accept OFF (turn ON in AG rider Home)");
       }
       return;
     }
@@ -51,19 +102,41 @@ public class RideAlertListener extends NotificationListenerService {
     final long tReceive = SystemClock.uptimeMillis();
     String text = notifText(sbn);
     Notification n = sbn.getNotification();
+    boolean ola = AutoClickerConfig.isOlaPackage(pkg);
+    boolean captain = AutoClickerConfig.isCaptainRapidoPackage(pkg);
+    boolean driverPkg = ola || captain;
 
-    if (AutoClickerService.isSpamText(text)) {
+    if (!driverPkg && AutoClickerService.isSpamText(text)) {
       logSkip("SKIP_SPAM", pkg, sbn, text);
       return;
     }
+    if (driverPkg && AutoClickerService.isDriverStatusPing(pkg, text, sbn.isOngoing())) {
+      logSkip("SKIP_STATUS", pkg, sbn, text);
+      return;
+    }
     boolean rideAlert = AutoClickerService.isRideAlert(text, n);
-    // Opaque / high-importance Captain ping with no spam text — still arm
-    // (some OEMs post empty or image-only ride heads-ups). Same on every phone.
+    if (!rideAlert && AutoClickerService.hasTripOfferCue(text)) {
+      rideAlert = true;
+    }
     if (!rideAlert && looksLikeOpaqueRidePing(sbn, n, text)) {
       rideAlert = true;
       Log.w(TAG, "NLS_OPAQUE_ARM pkg=" + pkg
           + " id=" + sbn.getId()
           + " textLen=" + (text != null ? text.length() : 0));
+    }
+    // Ola: keep the working heads-up arm (terse / image-only / non-ongoing).
+    // Rapido: only a real trip cue — random pings were causing spray.
+    if (!rideAlert && ola) {
+      String h = text != null ? text.toLowerCase(Locale.US) : "";
+      boolean requestCue = AutoClickerService.hasTripOfferCue(h);
+      if (requestCue || !sbn.isOngoing()) {
+        rideAlert = true;
+        Log.w(TAG, "NLS_OLA_ARM pkg=" + pkg
+            + " ongoing=" + sbn.isOngoing()
+            + " text=" + truncate(text, 80));
+      }
+    } else if (!rideAlert && captain && AutoClickerService.hasTripOfferCue(text)) {
+      rideAlert = true;
     }
     if (!rideAlert) {
       logSkip("SKIP_NOT_RIDE", pkg, sbn, text);
@@ -91,31 +164,21 @@ public class RideAlertListener extends NotificationListenerService {
     if (sbn.isOngoing()) return false;
     if ((n.flags & Notification.FLAG_FOREGROUND_SERVICE) != 0) return false;
     if (n.fullScreenIntent != null) return true;
-    if (n.category != null) {
-      String c = n.category;
-      if (Notification.CATEGORY_CALL.equals(c)
-          || Notification.CATEGORY_ALARM.equals(c)
-          || Notification.CATEGORY_EVENT.equals(c)
-          || Notification.CATEGORY_STATUS.equals(c)) {
-        return true;
-      }
-    }
-    // Empty / very short opaque text at HIGH+ importance
-    int len = text != null ? text.trim().length() : 0;
-    int importance = Notification.PRIORITY_DEFAULT;
-    try {
-      if (android.os.Build.VERSION.SDK_INT >= 26) {
-        // channel importance not always available here — use priority
-      }
-      importance = n.priority;
-    } catch (Exception ignored) {
-    }
-    if (len <= 2 && importance >= Notification.PRIORITY_HIGH) return true;
-    if (len <= 2 && sbn.getNotification() != null
-        && (n.flags & Notification.FLAG_INSISTENT) != 0) {
+    if (Notification.CATEGORY_CALL.equals(n.category)
+        || Notification.CATEGORY_ALARM.equals(n.category)
+        || Notification.CATEGORY_EVENT.equals(n.category)) {
       return true;
     }
-    return false;
+    // Ola image-only heads-ups are often empty + HIGH. Rapido must not use this
+    // or status pings become random taps.
+    if (AutoClickerConfig.isOlaPackage(sbn.getPackageName())) {
+      if (Notification.CATEGORY_STATUS.equals(n.category)) return true;
+      int len = text != null ? text.trim().length() : 0;
+      int importance = n.priority;
+      if (len <= 2 && importance >= Notification.PRIORITY_HIGH) return true;
+    }
+    int len = text != null ? text.trim().length() : 0;
+    return len <= 2 && (n.flags & Notification.FLAG_INSISTENT) != 0;
   }
 
   private void logSkip(String reason, String pkg, StatusBarNotification sbn, String text) {

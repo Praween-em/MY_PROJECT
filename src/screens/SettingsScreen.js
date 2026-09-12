@@ -6,12 +6,10 @@ import {
 import Screen from '../components/Screen';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
+import AppHeader from '../components/AppHeader';
 import { navigateRoot, replaceRoot } from '../navigation/rootNavigation';
-import { getSettings, saveSettings } from '../utils/settingsStorage';
 import { getStoredUser, clearUser } from '../utils/storage';
 import { usePermissions } from '../hooks/usePermissions';
-
-const DELAYS = [0, 50, 100];
 
 function SectionLabel({ children }) {
   return (
@@ -42,77 +40,33 @@ function SettingRow({ icon, title, sub, subColor, onPress, right, separator = tr
 
 export default function SettingsScreen({ navigation }) {
   const { status: permStatus } = usePermissions();
-  const [delay, setDelay] = useState(0);
   const [phone, setPhone] = useState('');
 
   useEffect(() => {
-    getSettings().then(s => setDelay(s.delayMs ?? 0));
     getStoredUser().then(u => setPhone(u?.phone ? `+91 ${u.phone}` : ''));
   }, []);
 
-  const pickDelay = async (d) => {
-    setDelay(d);
-    await saveSettings({ delayMs: d });
-  };
-
   const handleLogout = async () => {
-    await clearUser();
+    try {
+      await clearUser();
+    } catch {
+      /* still leave */
+    }
     replaceRoot(navigation, 'Login');
   };
 
   return (
     <Screen edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Settings</Text>
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <AppHeader
+        eyebrow="CONTROL"
+        title="Settings"
+        subtitle="Access, account and legal in one place."
+      />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <SectionLabel>Account</SectionLabel>
+        <SectionLabel>Service access</SectionLabel>
         <View style={styles.group}>
-          <SettingRow icon={<Ionicons name="phone-portrait-outline" size={18} color={colors.purpleBright} />} title="Mobile Number" sub={phone || '—'} />
-          <SettingRow
-            icon={<Ionicons name="card-outline" size={18} color={colors.purpleBright} />} title="Subscription / Renewal"
-            sub="View plans"
-            subColor={colors.purpleBright}
-            onPress={() => navigateRoot(navigation, 'Plans')}
-            separator={false}
-          />
-        </View>
-
-        <SectionLabel>Tap Behavior</SectionLabel>
-        <View style={styles.group}>
-          <View style={styles.row}>
-            <View style={styles.rowIconBox}>
-              <Ionicons name="timer-outline" size={18} color={colors.purpleBright} />
-            </View>
-            <View style={styles.rowContent}>
-              <Text style={styles.rowTitle}>Response Delay</Text>
-              <Text style={styles.rowSub}>Standard mode only. Nuclear always uses 0ms.</Text>
-            </View>
-          </View>
-          <View style={styles.chipRow}>
-            {DELAYS.map(d => (
-              <TouchableOpacity
-                key={d}
-                style={[styles.chip, delay === d && styles.chipActive]}
-                onPress={() => pickDelay(d)}
-              >
-                <Text style={[styles.chipText, delay === d && styles.chipTextActive]}>{d}ms</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <SectionLabel>Reliability</SectionLabel>
-        <View style={styles.group}>
-          <SettingRow
-            icon={<Ionicons name="shield-checkmark-outline" size={18} color={colors.purpleBright} />}
-            title="Service Reliability"
-            sub="OEM setup · battery · diagnose · EN / हिंदी / తెలుగు"
-            subColor={colors.purpleBright}
-            onPress={() => navigateRoot(navigation, 'ServiceReliability')}
-          />
           <SettingRow
             icon={<Ionicons name="accessibility-outline" size={18} color={colors.purpleBright} />} title="Accessibility Service"
             sub={permStatus.accessibility ? 'Enabled' : 'Not enabled — Tap to fix'}
@@ -124,6 +78,18 @@ export default function SettingsScreen({ navigation }) {
             sub={permStatus.battery ? 'Exemption granted' : 'Not granted'}
             subColor={permStatus.battery ? colors.onGreen : colors.offRed}
             onPress={() => navigateRoot(navigation, 'PermissionsSetup')}
+            separator={false}
+          />
+        </View>
+
+        <SectionLabel>Account</SectionLabel>
+        <View style={styles.group}>
+          <SettingRow icon={<Ionicons name="phone-portrait-outline" size={18} color={colors.purpleBright} />} title="Mobile Number" sub={phone || '—'} />
+          <SettingRow
+            icon={<Ionicons name="card-outline" size={18} color={colors.purpleBright} />} title="Subscription / Renewal"
+            sub="View plans"
+            subColor={colors.purpleBright}
+            onPress={() => navigateRoot(navigation, 'Plans')}
             separator={false}
           />
         </View>
@@ -146,7 +112,7 @@ export default function SettingsScreen({ navigation }) {
         </View>
 
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
-          <Text style={styles.logoutText}>LOG OUT</Text>
+          <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
       </ScrollView>
     </Screen>
@@ -154,35 +120,21 @@ export default function SettingsScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: colors.border, alignItems: 'center',
-  },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: colors.icy },
-  scroll: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 48, gap: 8 },
-  sectionLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 6, marginLeft: 4 },
-  sectionBar: { width: 3, height: 14, borderRadius: 2, backgroundColor: colors.purple },
-  sectionLabel: { fontSize: 11, fontWeight: '800', color: colors.icyMuted, letterSpacing: 1.5, textTransform: 'uppercase' },
-  group: { backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 14 },
-  rowIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.surfaceLight, alignItems: 'center', justifyContent: 'center' },
-  rowIcon: { fontSize: 18 },
+  scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 48, gap: 6 },
+  sectionLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, marginBottom: 8, marginLeft: 4 },
+  sectionBar: { width: 12, height: 2, borderRadius: 1, backgroundColor: colors.purple },
+  sectionLabel: { fontSize: 11, fontWeight: '800', color: colors.icyMuted, letterSpacing: 1.4, textTransform: 'uppercase' },
+  group: { backgroundColor: colors.surfaceCard, borderRadius: 24, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 15, gap: 14 },
+  rowIconBox: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceLight, alignItems: 'center', justifyContent: 'center' },
   rowContent: { flex: 1 },
-  rowTitle: { fontSize: 15, fontWeight: '600', color: colors.icy },
-  rowSub: { fontSize: 12, color: colors.icyDim, marginTop: 2 },
-  chevron: { fontSize: 20, color: colors.icyMuted },
-  separator: { height: 1, backgroundColor: colors.border, marginLeft: 66 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, paddingBottom: 14 },
-  chip: {
-    paddingHorizontal: 18, paddingVertical: 12, borderRadius: 50,
-    backgroundColor: colors.surfaceLight, borderWidth: 1.5, borderColor: colors.border,
-  },
-  chipActive: { backgroundColor: colors.onGreenDim, borderColor: colors.onGreen },
-  chipText: { fontSize: 14, color: colors.icyMuted, fontWeight: '700' },
-  chipTextActive: { color: colors.onGreen },
+  rowTitle: { fontSize: 15, fontWeight: '700', color: colors.icy },
+  rowSub: { fontSize: 12, color: colors.icyDim, marginTop: 3 },
+  chevron: { fontSize: 22, color: colors.icyMuted },
+  separator: { height: 1, backgroundColor: colors.border, marginLeft: 70 },
   logoutBtn: {
-    marginTop: 16, borderWidth: 1.5, borderColor: colors.offRed,
-    borderRadius: 14, paddingVertical: 16, alignItems: 'center', backgroundColor: colors.offRedDim,
+    marginTop: 18, borderRadius: 999, paddingVertical: 16, alignItems: 'center',
+    backgroundColor: colors.offRedDim,
   },
-  logoutText: { color: colors.offRed, fontSize: 14, fontWeight: '900', letterSpacing: 1.5 },
+  logoutText: { color: colors.offRed, fontSize: 14, fontWeight: '800' },
 });

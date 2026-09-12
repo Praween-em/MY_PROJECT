@@ -1,4 +1,4 @@
-package com.rapido.tap;
+package com.ridio.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -37,7 +37,7 @@ public final class AutoClickerConfig {
   private static final AtomicInteger minPrice = new AtomicInteger(0);
   private static final AtomicInteger delayMs = new AtomicInteger(0);
   private static final AtomicInteger filterMode = new AtomicInteger(MODE_PRICE);
-  private static final AtomicReference<Float> maxPickup = new AtomicReference<>(99f);
+  private static final AtomicReference<Float> maxPickup = new AtomicReference<>(0f);
   private static final AtomicReference<Float> maxDrop = new AtomicReference<>(0f);
   private static final AtomicLong lastClickAt = new AtomicLong(0);
   private static final Set<String> monitoredPackages = Collections.synchronizedSet(new HashSet<>());
@@ -50,10 +50,16 @@ public final class AutoClickerConfig {
   private static volatile SharedPreferences prefs;
   private static volatile Context appContext;
 
+  public static final String PKG_OLA_DRIVER = "com.olacabs.oladriver";
+  /** Play Store Rapido Captain — package id is com.rapido.rider (not .captain). */
+  public static final String PKG_RAPIDO_CAPTAIN = "com.rapido.rider";
+  /** Legacy / alternate id some builds used. */
+  public static final String PKG_RAPIDO_CAPTAIN_LEGACY = "com.rapido.captain";
+
   static {
-    monitoredPackages.add("com.rapido.rider");
-    monitoredPackages.add("com.rapido.captain");
-    monitoredPackages.add("com.rapido.driver");
+    monitoredPackages.add(PKG_OLA_DRIVER);
+    monitoredPackages.add(PKG_RAPIDO_CAPTAIN);
+    monitoredPackages.add(PKG_RAPIDO_CAPTAIN_LEGACY);
   }
 
   private AutoClickerConfig() {}
@@ -97,13 +103,13 @@ public final class AutoClickerConfig {
       }
     }
     filterMode.set(p.getInt("filter_mode", MODE_PRICE));
-    maxPickup.set(p.getFloat("max_pickup", 99f));
+    maxPickup.set(p.getFloat("max_pickup", 0f));
     maxDrop.set(p.getFloat("max_drop", 0f));
     continuousForegroundTap.set(false); // HARD OFF — ignore stale pref
     minPrice.set(Math.max(0, p.getInt("min_price", 0)));
-    nuclearMode.set(p.getBoolean("nuclear_mode", true));
+    nuclearMode.set(true);
     enabled.set(p.getBoolean("enabled", false));
-    delayMs.set(Math.max(0, p.getInt("delay_ms", 0)));
+    delayMs.set(0);
   }
 
   /** Ensure prefs loaded before any enable/min check (safe from NLS binder thread). */
@@ -157,10 +163,10 @@ public final class AutoClickerConfig {
   }
 
   public static void applyNuclearFromBroadcast(boolean value) {
-    nuclearMode.set(value);
+    nuclearMode.set(true);
     SharedPreferences p = prefs;
     if (p != null) {
-      p.edit().putBoolean("nuclear_mode", value).commit();
+      p.edit().putBoolean("nuclear_mode", true).commit();
     }
   }
 
@@ -185,8 +191,20 @@ public final class AutoClickerConfig {
     if (now - lastDiskSyncUptimeMs < 400L) return;
     lastDiskSyncUptimeMs = now;
     enabled.set(p.getBoolean("enabled", false));
-    nuclearMode.set(p.getBoolean("nuclear_mode", true));
-    // min_price / delay_ms skipped — min-fare UI removed; delay unused by race engine
+    nuclearMode.set(true);
+    minPrice.set(Math.max(0, p.getInt("min_price", 0)));
+    maxPickup.set(p.getFloat("max_pickup", 0f));
+  }
+
+  public static void applyFiltersFromBroadcast(int minFare, float pickupKm) {
+    minPrice.set(Math.max(0, minFare));
+    maxPickup.set(Math.max(0f, pickupKm));
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit().putInt("min_price", minPrice.get()).putFloat("max_pickup", maxPickup.get()).commit();
+    }
+    broadcastProtectUntilMs = android.os.SystemClock.uptimeMillis() + 5000L;
+    lastDiskSyncUptimeMs = 0L;
   }
 
   public static void markBroadcastApplied() {
@@ -200,9 +218,9 @@ public final class AutoClickerConfig {
   }
 
   public static void setNuclearMode(boolean value) {
-    nuclearMode.set(value);
+    nuclearMode.set(true);
     SharedPreferences p = prefs;
-    if (p != null) p.edit().putBoolean("nuclear_mode", value).commit();
+    if (p != null) p.edit().putBoolean("nuclear_mode", true).commit();
   }
 
   public static boolean isContinuousForegroundTap() {
@@ -217,8 +235,8 @@ public final class AutoClickerConfig {
   }
 
   public static int getMinPrice() {
-    // Min-fare UI removed — always accept any fare
-    return 0;
+    syncCriticalFromDisk();
+    return Math.max(0, minPrice.get());
   }
 
   public static void setMinPrice(int value) {
@@ -233,10 +251,9 @@ public final class AutoClickerConfig {
   }
 
   public static void setDelayMs(int value) {
-    int v = Math.max(0, value);
-    delayMs.set(v);
+    delayMs.set(0);
     SharedPreferences p = prefs;
-    if (p != null) p.edit().putInt("delay_ms", v).apply();
+    if (p != null) p.edit().putInt("delay_ms", 0).apply();
   }
 
   public static int getFilterMode() {
@@ -250,14 +267,16 @@ public final class AutoClickerConfig {
   }
 
   public static float getMaxPickup() {
+    syncCriticalFromDisk();
     Float v = maxPickup.get();
-    return v != null ? v : 99f;
+    return v != null ? Math.max(0f, v) : 0f;
   }
 
   public static void setMaxPickup(float km) {
-    maxPickup.set(km);
+    float v = Math.max(0f, km);
+    maxPickup.set(v);
     SharedPreferences p = prefs;
-    if (p != null) p.edit().putFloat("max_pickup", km).apply();
+    if (p != null) p.edit().putFloat("max_pickup", v).commit();
   }
 
   public static float getMaxDrop() {
@@ -274,18 +293,62 @@ public final class AutoClickerConfig {
   public static boolean isPackageMonitored(String packageName) {
     if (packageName == null) return false;
     if (monitoredPackages.contains(packageName)) return true;
-    // Always treat Rapido as monitored even if prefs were trimmed
-    return isRapidoPackage(packageName);
+    return isTargetPackage(packageName);
   }
 
+  /** Ola / Rapido Captain — kept name for race-engine call sites. */
   public static boolean isRapidoPackage(String packageName) {
+    return isTargetPackage(packageName);
+  }
+
+  public static boolean isTargetPackage(String packageName) {
     if (packageName == null) return false;
-    // SUPER RIDEX itself is com.rapido.tap — NEVER treat it as Captain
-    // (contains("rapido") used to match our app → continuous mid-screen taps)
-    if (packageName.equals("com.rapido.tap")) return false;
-    return packageName.equals("com.rapido.rider")
-        || packageName.equals("com.rapido.captain")
-        || packageName.equals("com.rapido.driver");
+    if (packageName.equals("com.ridio.app")) return false;
+    return isOlaPackage(packageName) || isCaptainRapidoPackage(packageName);
+  }
+
+  public static boolean isOlaPackage(String packageName) {
+    if (packageName == null) return false;
+    return packageName.equals(PKG_OLA_DRIVER)
+        || packageName.startsWith("com.olacabs.oladriver");
+  }
+
+  /** Rapido Captain (a11y ACTION_CLICK — no Shizuku required). */
+  public static boolean isCaptainRapidoPackage(String packageName) {
+    if (packageName == null) return false;
+    if (packageName.equals("com.ridio.app")) return false;
+    return packageName.equals(PKG_RAPIDO_CAPTAIN)
+        || packageName.equals(PKG_RAPIDO_CAPTAIN_LEGACY)
+        || packageName.startsWith("com.rapido.rider")
+        || packageName.startsWith("com.rapido.captain");
+  }
+
+  /** Ola needs privileged inject; Rapido uses accessibility click. */
+  public static boolean needsShizukuInject(String packageName) {
+    return isOlaPackage(packageName);
+  }
+
+  /**
+   * Who owns this Accept. Never guess Rapido — a wrong default turns Ola
+   * into Accessibility clicks that Ola ignores.
+   */
+  public enum TapTarget {
+    NONE,
+    RAPIDO,
+    OLA
+  }
+
+  public static TapTarget tapTargetOf(String packageName) {
+    if (packageName == null || packageName.isEmpty()) return TapTarget.NONE;
+    if (isOlaPackage(packageName)) return TapTarget.OLA;
+    if (isCaptainRapidoPackage(packageName)) return TapTarget.RAPIDO;
+    return TapTarget.NONE;
+  }
+
+  public static String canonicalPackage(TapTarget target) {
+    if (target == TapTarget.OLA) return PKG_OLA_DRIVER;
+    if (target == TapTarget.RAPIDO) return PKG_RAPIDO_CAPTAIN;
+    return null;
   }
 
   public static void setMonitoredPackages(Set<String> packages) {

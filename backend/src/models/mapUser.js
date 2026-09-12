@@ -16,8 +16,6 @@ function mapUser(row) {
     subscriptionStart: row.subscription_start ? new Date(row.subscription_start).toISOString() : null,
     subscriptionEnd: row.subscription_end ? new Date(row.subscription_end).toISOString() : null,
     planType: row.plan_type || null,
-    razorpayOrderId: row.razorpay_order_id || null,
-    razorpayPaymentId: row.razorpay_payment_id || null,
     maxDevices: row.max_devices ?? 1,
     status: row.status || 'active',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,

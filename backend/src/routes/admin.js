@@ -5,14 +5,29 @@
 const express = require('express');
 const router = express.Router();
 const { loginAdmin, requireAdmin } = require('../middleware/adminAuth');
-const { searchUsers, getUserByPhone, adminUpdateUser, ensureUser } = require('../models/user');
+const {
+  searchUsers,
+  getUserByPhone,
+  adminUpdateUser,
+  ensureUser,
+  processReferralOnPayment,
+} = require('../models/user');
 const { listDevicesForUser, removeDevice, resetDevices } = require('../models/device');
-const { logAdminAction, listPaymentsForUser, getDashboardStats, listPaidCustomers, listActiveSubscriptions, listAllPayments, listAuditLogs } = require('../models/admin');
-const { activateFromPaymentId } = require('../services/paymentActivation');
-const { normalizePhone } = require('../utils/phone');
+const {
+  logAdminAction,
+  getDashboardStats,
+  listActiveSubscriptions,
+  listAuditLogs,
+} = require('../models/admin');
 const { listPlans, upsertPlans, ALLOWED_PLAN_IDS } = require('../models/plans');
 const { computeSubscriptionEnd } = require('../models/user');
 const { listSocialLinks, upsertSocialLinks } = require('../models/socials');
+const {
+  getPaymentContactConfig,
+  updateTelegramUrl,
+  savePaymentImage,
+  removePaymentImage,
+} = require('../models/paymentContact');
 
 router.post('/login', async (req, res) => {
   try {
@@ -39,15 +54,6 @@ router.get('/dashboard', async (_req, res) => {
   try {
     const stats = await getDashboardStats();
     res.json({ stats });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-router.get('/payments', async (req, res) => {
-  try {
-    const payments = await listAllPayments(Number(req.query.limit) || 100);
-    res.json({ payments });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -82,55 +88,10 @@ router.put('/plans', async (req, res) => {
   }
 });
 
-/**
- * POST /admin/api/payments/reconcile
- * Body: { paymentId: "pay_...", phone?: "9876543210" }
- * Fetches captured payment from Razorpay and activates subscription (fixes missed verify/webhook).
- */
-router.post('/payments/reconcile', async (req, res) => {
-  try {
-    const paymentId = String(req.body?.paymentId || '').trim();
-    if (!paymentId.startsWith('pay_')) {
-      return res.status(400).json({ message: 'paymentId must start with pay_' });
-    }
-    const phone = req.body?.phone ? normalizePhone(req.body.phone) : null;
-    if (req.body?.phone && !phone) {
-      return res.status(400).json({ message: 'Valid 10-digit phone required' });
-    }
-
-    const result = await activateFromPaymentId(paymentId, phone);
-    await logAdminAction(req.admin.id, 'payment.reconcile', result.phone, {
-      paymentId,
-      planId: result.planId,
-      alreadyProcessed: result.alreadyProcessed,
-    });
-
-    res.json({
-      success: true,
-      phone: result.phone,
-      planId: result.planId,
-      subscriptionEnd: result.subscriptionEnd,
-      alreadyProcessed: result.alreadyProcessed,
-    });
-  } catch (err) {
-    console.error('payment reconcile error:', err.message || err);
-    res.status(err.status || 500).json({ message: err.message });
-  }
-});
-
 router.get('/subscriptions', async (req, res) => {
   try {
     const subscriptions = await listActiveSubscriptions(Number(req.query.limit) || 100);
     res.json({ subscriptions });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-router.get('/paid-customers', async (req, res) => {
-  try {
-    const customers = await listPaidCustomers(Number(req.query.limit) || 100);
-    res.json({ customers });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -165,9 +126,8 @@ router.get('/users/:phone', async (req, res) => {
     const user = await getUserByPhone(req.params.phone);
     if (!user) return res.status(404).json({ message: 'User not found' });
     const devices = await listDevicesForUser(user.id);
-    const payments = await listPaymentsForUser(user.id);
     const active = !!(user.subscriptionEnd && new Date(user.subscriptionEnd) > new Date() && user.status !== 'blocked');
-    res.json({ user, devices, payments, active });
+    res.json({ user, devices, active });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -235,6 +195,9 @@ router.patch('/users/:phone', async (req, res) => {
     }
 
     const updated = await adminUpdateUser(req.params.phone, patch);
+    if (req.body.grantPlan) {
+      await processReferralOnPayment(updated.phone, req.body.grantPlan);
+    }
     await logAdminAction(req.admin.id, 'user.patch', req.params.phone, patch);
     res.json({ user: updated });
   } catch (err) {
@@ -292,6 +255,53 @@ router.put('/socials', async (req, res) => {
   } catch (err) {
     const status = err.status || 500;
     res.status(status).json({ message: err.message });
+  }
+});
+
+router.get('/payment-contact', async (_req, res) => {
+  try {
+    res.json({ config: await getPaymentContactConfig() });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.put('/payment-contact', async (req, res) => {
+  try {
+    const config = await updateTelegramUrl(req.body?.telegramUrl);
+    await logAdminAction(req.admin.id, 'payment-contact.telegram.update', null, {
+      configured: !!config.telegramUrl,
+    });
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message });
+  }
+});
+
+router.post(
+  '/payment-contact/image',
+  express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '2mb' }),
+  async (req, res) => {
+    try {
+      const config = await savePaymentImage(req.body, req.get('content-type'));
+      await logAdminAction(req.admin.id, 'payment-contact.image.update', null, {
+        mime: req.get('content-type'),
+        bytes: req.body?.length || 0,
+      });
+      res.json({ success: true, config });
+    } catch (err) {
+      res.status(err.status || 500).json({ message: err.message });
+    }
+  }
+);
+
+router.delete('/payment-contact/image', async (req, res) => {
+  try {
+    const config = await removePaymentImage();
+    await logAdminAction(req.admin.id, 'payment-contact.image.remove', null, {});
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 

@@ -51,24 +51,6 @@ async function logAdminAction(adminId, action, targetPhone, details = {}) {
   );
 }
 
-async function listPaymentsForUser(userId, limit = 20) {
-  const { rows } = await query(
-    `SELECT id, order_id, payment_id, plan_type, amount, status, created_at
-     FROM payments WHERE user_id = $1
-     ORDER BY created_at DESC LIMIT $2`,
-    [userId, limit]
-  );
-  return rows.map((r) => ({
-    id: r.id,
-    orderId: r.order_id,
-    paymentId: r.payment_id,
-    planType: r.plan_type,
-    amount: r.amount,
-    status: r.status,
-    createdAt: r.created_at,
-  }));
-}
-
 async function getDashboardStats() {
   const { rows } = await query(`
     SELECT
@@ -78,11 +60,6 @@ async function getDashboardStats() {
         WHERE status = 'active'
           AND subscription_end IS NOT NULL
           AND subscription_end > NOW()) AS active_subscriptions,
-      (SELECT COUNT(*)::int FROM users
-        WHERE razorpay_payment_id IS NOT NULL
-           OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = users.id)) AS paid_customers,
-      (SELECT COUNT(*)::int FROM payments WHERE status = 'captured') AS successful_payments,
-      (SELECT COALESCE(SUM(amount), 0)::int FROM payments WHERE status = 'captured') AS revenue_paise,
       (SELECT COUNT(*)::int FROM devices) AS bound_devices
   `);
   const s = rows[0];
@@ -90,41 +67,8 @@ async function getDashboardStats() {
     totalUsers: s.total_users,
     blockedUsers: s.blocked_users,
     activeSubscriptions: s.active_subscriptions,
-    paidCustomers: s.paid_customers,
-    successfulPayments: s.successful_payments,
-    revenuePaise: s.revenue_paise,
-    revenueInr: Math.round((s.revenue_paise || 0) / 100),
     boundDevices: s.bound_devices,
   };
-}
-
-async function listPaidCustomers(limit = 100) {
-  const { rows } = await query(
-    `SELECT u.*,
-            (SELECT COUNT(*)::int FROM payments p WHERE p.user_id = u.id AND p.status = 'captured') AS payment_count,
-            (SELECT MAX(p.created_at) FROM payments p WHERE p.user_id = u.id AND p.status = 'captured') AS last_payment_at,
-            (SELECT COUNT(*)::int FROM devices d WHERE d.user_id = u.id) AS device_count
-     FROM users u
-     WHERE u.razorpay_payment_id IS NOT NULL
-        OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = u.id AND p.status = 'captured')
-     ORDER BY COALESCE(
-       (SELECT MAX(p.created_at) FROM payments p WHERE p.user_id = u.id),
-       u.updated_at
-     ) DESC
-     LIMIT $1`,
-    [limit]
-  );
-  const { mapUser, isSubscriptionActive } = require('./mapUser');
-  return rows.map((r) => {
-    const user = mapUser(r);
-    return {
-      ...user,
-      paymentCount: r.payment_count,
-      lastPaymentAt: r.last_payment_at,
-      deviceCount: r.device_count,
-      active: isSubscriptionActive(user),
-    };
-  });
 }
 
 async function listActiveSubscriptions(limit = 100) {
@@ -144,32 +88,6 @@ async function listActiveSubscriptions(limit = 100) {
     ...mapUser(r),
     deviceCount: r.device_count,
     active: true,
-  }));
-}
-
-async function listAllPayments(limit = 100) {
-  const { rows } = await query(
-    `SELECT p.id, p.order_id, p.payment_id, p.plan_type, p.amount, p.status, p.created_at,
-            u.phone, u.referral_code, u.status AS user_status
-     FROM payments p
-     JOIN users u ON u.id = p.user_id
-     WHERE p.status = 'captured'
-     ORDER BY p.created_at DESC
-     LIMIT $1`,
-    [limit]
-  );
-  return rows.map((r) => ({
-    id: r.id,
-    phone: r.phone,
-    referralCode: r.referral_code,
-    userStatus: r.user_status,
-    orderId: r.order_id,
-    paymentId: r.payment_id,
-    planType: r.plan_type,
-    amount: r.amount,
-    amountInr: r.amount != null ? Math.round(r.amount / 100) : null,
-    status: r.status,
-    createdAt: r.created_at,
   }));
 }
 
@@ -200,10 +118,7 @@ module.exports = {
   findAdminByEmail,
   authenticateAdmin,
   logAdminAction,
-  listPaymentsForUser,
   getDashboardStats,
-  listPaidCustomers,
   listActiveSubscriptions,
-  listAllPayments,
   listAuditLogs,
 };

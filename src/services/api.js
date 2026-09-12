@@ -1,5 +1,5 @@
 /**
- * api.js — HTTP client for SUPER RIDEX backend (Postgres / Railway)
+ * api.js — HTTP client for AG rider backend (Postgres / Railway)
  */
 
 import Constants from 'expo-constants';
@@ -96,20 +96,6 @@ export async function getSubscriptionPlans() {
   return request('GET', '/subscription/plans');
 }
 
-export async function createOrder(planId, phone) {
-  return request('POST', '/subscription/create-order', { planId, phone });
-}
-
-export async function verifyPayment({ razorpayOrderId, razorpayPaymentId, razorpaySignature, phone, planId }) {
-  return request('POST', '/subscription/verify-payment', {
-    razorpayOrderId,
-    razorpayPaymentId,
-    razorpaySignature,
-    phone,
-    planId,
-  });
-}
-
 export async function getSubscriptionStatus(phone) {
   const deviceId = await getDeviceId();
   const qs = new URLSearchParams({ phone });
@@ -148,4 +134,13 @@ export async function verifyOtpWithServer({ phone, accessToken, referralCode }) 
 /** Public social / help links from DB (admin-editable). */
 export async function getSocialLinks() {
   return request('GET', '/socials');
+}
+
+/** Backend-managed Telegram payment destination and optional plans-screen image. */
+export async function getPaymentContact() {
+  const data = await request('GET', '/payment-contact');
+  return {
+    ...data,
+    imageUrl: data.imagePath ? `${BASE_URL}${data.imagePath}` : null,
+  };
 }

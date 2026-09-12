@@ -1,15 +1,21 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity,
+  View, Text, StyleSheet, StatusBar, ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import Screen from '../components/Screen';
 import { colors } from '../theme/colors';
+import AppHeader from '../components/AppHeader';
 
 function Section({ title, children }) {
+  const [num, ...rest] = title.split('. ');
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <View style={styles.sectionHead}>
+        <View style={styles.numBadge}>
+          <Text style={styles.numText}>{num}</Text>
+        </View>
+        <Text style={styles.sectionTitle}>{rest.join('. ')}</Text>
+      </View>
       {children}
     </View>
   );
@@ -22,31 +28,27 @@ function P({ children }) {
 export default function TermsScreen({ navigation }) {
   return (
     <Screen edges={['top', 'bottom']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => navigation.goBack()}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.icy} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Terms & Conditions</Text>
-        <View style={styles.backBtn} />
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <AppHeader
+        eyebrow="LEGAL"
+        title="Terms & conditions"
+        subtitle="Responsible use of AG rider services."
+        onBack={() => navigation.goBack()}
+      />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.updated}>Last updated: 28 July 2026</Text>
+        <View style={styles.dateChip}>
+          <Text style={styles.updated}>Updated 28 July 2026</Text>
+        </View>
         <Text style={styles.lead}>
-          These Terms & Conditions (“Terms”) govern your use of SUPER RIDEX
+          These Terms & Conditions (“Terms”) govern your use of AG rider
           (the “App”). By creating an account or using the App, you agree to
           these Terms.
         </Text>
 
         <Section title="1. Accessibility Assistive Purpose">
           <P>
-            SUPER RIDEX is an accessibility assistive application. It is
+            AG rider is an accessibility assistive application. It is
             intended for drivers who have a disability, impairment, or other
             condition that makes it difficult to locate and press the Accept
             control on ride-request screens accurately, consistently, or within
@@ -65,7 +67,7 @@ export default function TermsScreen({ navigation }) {
           <P>
             You represent that you are legally permitted to drive and to use
             partner ride-hailing applications in your jurisdiction. You agree
-            not to use SUPER RIDEX to circumvent platform rules, harass others,
+            not to use AG rider to circumvent platform rules, harass others,
             commit fraud, or operate the App in any manner unrelated to
             accessibility assistance.
           </P>
@@ -97,7 +99,7 @@ export default function TermsScreen({ navigation }) {
 
         <Section title="5. Third-Party Services">
           <P>
-            SUPER RIDEX may interact with third-party driver applications for
+            AG rider may interact with third-party driver applications for
             accessibility assistance only. Those applications are owned and
             operated by their respective providers. We are not affiliated with,
             endorsed by, or responsible for third-party platforms, their
@@ -126,7 +128,7 @@ export default function TermsScreen({ navigation }) {
 
         <Section title="8. Limitation of Liability">
           <P>
-            To the maximum extent permitted by law, SUPER RIDEX and its
+            To the maximum extent permitted by law, AG rider and its
             operators shall not be liable for any indirect, incidental, special,
             consequential, or punitive damages, or any loss of profits, data, or
             goodwill, arising from your use of the App.
@@ -162,42 +164,36 @@ export default function TermsScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40, gap: 12 },
+  dateChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surfaceCard,
+    borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingVertical: 6,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 17,
-    fontWeight: '800',
-    color: colors.icy,
-  },
-  scroll: { padding: 20, paddingBottom: 40, gap: 8 },
-  updated: { fontSize: 12, color: colors.icyMuted, marginBottom: 8 },
+  updated: { fontSize: 12, color: colors.icyMuted, fontWeight: '700' },
   lead: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: colors.icyDim,
-    marginBottom: 12,
-  },
-  section: { marginTop: 14, gap: 8 },
-  sectionTitle: {
     fontSize: 15,
+    lineHeight: 23,
+    color: colors.icyDim,
+    marginBottom: 4,
+  },
+  section: {
+    gap: 8, padding: 16,
+    backgroundColor: colors.surfaceCard, borderRadius: 22,
+  },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 2 },
+  numBadge: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: colors.purple, alignItems: 'center', justifyContent: 'center',
+  },
+  numText: { color: colors.background, fontSize: 12, fontWeight: '800' },
+  sectionTitle: {
+    flex: 1,
+    fontSize: 16,
     fontWeight: '800',
     color: colors.icy,
-    marginBottom: 2,
   },
   para: {
     fontSize: 14,

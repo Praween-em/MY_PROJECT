@@ -1,6 +1,6 @@
-# SUPER RIDEX Backend
+# AG rider Backend
 
-Express + **PostgreSQL** + Razorpay + Admin panel.
+Express + **PostgreSQL** + Telegram-assisted payments + Admin panel.
 
 Deploy to Railway when the project is ready. Local development does not require AWS/DynamoDB.
 
@@ -11,7 +11,7 @@ Deploy to Railway when the project is ready. Local development does not require 
 
 ```bash
 cp .env.example .env
-# edit DATABASE_URL + Razorpay keys + ADMIN_JWT_SECRET
+# edit DATABASE_URL + ADMIN_JWT_SECRET
 ```
 
 3. Install & migrate:
@@ -43,13 +43,24 @@ EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3000
 | POST | `/referral/register` | Create user + bind device |
 | GET | `/subscription/status` | Sub status + device entitlement |
 | POST | `/entitlement/check` | Gate for auto-accept ON |
-| POST | `/subscription/create-order` | Razorpay order |
-| POST | `/subscription/verify-payment` | Verify + activate |
-| POST | `/webhook/razorpay` | Razorpay webhook |
+| GET | `/payment-contact` | Telegram payment link + image state |
+| GET | `/payment-contact/image` | Current payment-screen image |
 | POST | `/admin/api/login` | Admin login |
 | GET | `/admin/api/users` | Search users |
 | PATCH | `/admin/api/users/:phone` | Grant plan / max devices / block |
 | POST | `/admin/api/users/:phone/devices/reset` | Unbind all devices |
+| PUT | `/admin/api/payment-contact` | Update Telegram payment link |
+| POST | `/admin/api/payment-contact/image` | Upload payment-screen image |
+| DELETE | `/admin/api/payment-contact/image` | Remove payment-screen image |
+
+## Telegram payment workflow
+
+1. Open `/admin` → **Payment Contact**.
+2. Set the `https://t.me/...` destination.
+3. Upload an optional PNG, JPEG, or WebP image up to 2 MB.
+4. The user chooses a plan and taps **Continue on Telegram**.
+5. Confirm payment in Telegram.
+6. Search the user's phone in `/admin` and grant the selected plan.
 
 ## Admin device-change playbook
 
@@ -61,7 +72,7 @@ EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3000
 
 1. New project + PostgreSQL plugin  
 2. Deploy this `backend/` folder (Dockerfile runs migrate then start)  
-3. Set `DATABASE_URL`, `DATABASE_SSL=true`, Razorpay keys, `ADMIN_JWT_SECRET`  
+3. Set `DATABASE_URL`, `DATABASE_SSL=true`, `ADMIN_JWT_SECRET`
 4. Seed admin once via Railway shell: `npm run seed:admin -- ...`  
-5. Point Razorpay webhook to `https://<url>/webhook/razorpay`  
-6. Set app `EXPO_PUBLIC_API_URL` to the Railway URL and rebuild the APK  
+5. Configure the Telegram link and image in the admin panel.
+6. Set app `EXPO_PUBLIC_API_URL` to the Railway URL and rebuild the APK.

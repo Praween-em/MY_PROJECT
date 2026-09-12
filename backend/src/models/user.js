@@ -82,26 +82,6 @@ async function applyReferralCode(phone, code) {
   return referrer.phone;
 }
 
-async function updateSubscription(phone, {
-  subscriptionStart,
-  subscriptionEnd,
-  planType,
-  razorpayOrderId,
-  razorpayPaymentId,
-}) {
-  await query(
-    `UPDATE users SET
-       subscription_start = $1,
-       subscription_end = $2,
-       plan_type = $3,
-       razorpay_order_id = $4,
-       razorpay_payment_id = $5,
-       updated_at = NOW()
-     WHERE phone = $6`,
-    [subscriptionStart, subscriptionEnd, planType, razorpayOrderId, razorpayPaymentId, phone]
-  );
-}
-
 async function computeSubscriptionEnd(planType, fromDate = new Date()) {
   const plan = await getPlanById(planType);
   const days = plan?.durationDays ?? (planType === 'quarterly' ? 90 : 30);
@@ -150,74 +130,6 @@ async function processReferralOnPayment(phone, planType) {
   }
 
   return { referrerPhone, newPaid, grantReward, rewardEnd };
-}
-
-/**
- * Activate or extend subscription after payment. Idempotent per razorpayPaymentId.
- */
-async function activateSubscription(phone, {
-  planId,
-  razorpayOrderId,
-  razorpayPaymentId,
-  amount = null,
-}) {
-  await ensureUser(phone);
-  const user = await getUserByPhone(phone);
-
-  if (user?.razorpayPaymentId === razorpayPaymentId) {
-    return {
-      alreadyProcessed: true,
-      subscriptionEnd: user.subscriptionEnd,
-      referralResult: null,
-    };
-  }
-
-  // Also idempotent if payment row already exists
-  const existingPay = await query(
-    'SELECT 1 FROM payments WHERE payment_id = $1',
-    [razorpayPaymentId]
-  );
-  if (existingPay.rows.length) {
-    return {
-      alreadyProcessed: true,
-      subscriptionEnd: user.subscriptionEnd,
-      referralResult: null,
-    };
-  }
-
-  const baseDate =
-    user?.subscriptionEnd && new Date(user.subscriptionEnd) > new Date()
-      ? new Date(user.subscriptionEnd)
-      : new Date();
-  const now = new Date().toISOString();
-  const subscriptionEnd = await computeSubscriptionEnd(planId, baseDate);
-
-  await withTransaction(async (client) => {
-    await client.query(
-      `UPDATE users SET
-         subscription_start = COALESCE(subscription_start, $1::timestamptz),
-         subscription_end = $2,
-         plan_type = $3,
-         razorpay_order_id = $4,
-         razorpay_payment_id = $5,
-         updated_at = NOW()
-       WHERE phone = $6`,
-      [now, subscriptionEnd, planId, razorpayOrderId, razorpayPaymentId, phone]
-    );
-
-    const plan = await getPlanById(planId);
-    const resolvedAmount = amount ?? plan?.amount ?? null;
-
-    await client.query(
-      `INSERT INTO payments (user_id, order_id, payment_id, plan_type, amount, status)
-       VALUES ($1, $2, $3, $4, $5, 'captured')
-       ON CONFLICT (payment_id) DO NOTHING`,
-      [user.id, razorpayOrderId, razorpayPaymentId, planId, resolvedAmount]
-    );
-  });
-
-  const referralResult = await processReferralOnPayment(phone, planId);
-  return { alreadyProcessed: false, subscriptionEnd, referralResult };
 }
 
 async function searchUsers(q, limit = 50) {
@@ -276,8 +188,6 @@ module.exports = {
   getUserByReferralCode,
   ensureUser,
   applyReferralCode,
-  updateSubscription,
-  activateSubscription,
   processReferralOnPayment,
   computeSubscriptionEnd,
   searchUsers,

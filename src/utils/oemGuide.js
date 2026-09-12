@@ -9,18 +9,18 @@ export const OEM_GUIDES = {
     autostartNote: 'Please verify Auto-start manually.',
     steps: [
       'Open Settings → Apps → Permissions → Autostart (or App launch).',
-      'Enable Auto-start / allow background launch for SUPER RIDEX.',
-      'Open SUPER RIDEX App info → Battery → No restrictions / Allow background.',
+      'Enable Auto-start / allow background launch for AG rider.',
+      'Open AG rider App info → Battery → No restrictions / Allow background.',
       'On HyperOS/MIUI, also check Battery saver / App battery saver → No restrictions.',
-      'Keep Accessibility Service enabled for SUPER RIDEX.',
-      'Optional: lock SUPER RIDEX in Recents so swipe-away is less aggressive.',
+      'Keep Accessibility Service enabled for AG rider.',
+      'Optional: lock AG rider in Recents so swipe-away is less aggressive.',
     ],
   },
   oppo: {
     title: 'OPPO (ColorOS)',
     autostartNote: 'Please verify Auto-start / Auto-launch manually.',
     steps: [
-      'Open Settings → Apps → App management → SUPER RIDEX.',
+      'Open Settings → Apps → App management → AG rider.',
       'Enable Auto-launch / Auto-start if shown.',
       'Open Battery → Allow background activity (avoid aggressive restriction).',
       'Keep Accessibility Service enabled.',
@@ -31,7 +31,7 @@ export const OEM_GUIDES = {
     title: 'Vivo (Funtouch / OriginOS)',
     autostartNote: 'Please verify Auto-start / background startup manually.',
     steps: [
-      'Open Settings → Apps → SUPER RIDEX.',
+      'Open Settings → Apps → AG rider.',
       'Open Battery → Allow background activity where available.',
       'Enable Auto-start / High background power consumption if shown.',
       'Keep Accessibility Service enabled.',
@@ -42,7 +42,7 @@ export const OEM_GUIDES = {
     title: 'realme (realme UI)',
     autostartNote: 'Please verify Auto-launch / Startup manually.',
     steps: [
-      'Open Settings → Apps → App management → SUPER RIDEX.',
+      'Open Settings → Apps → App management → AG rider.',
       'Battery usage → Allow background activity.',
       'Enable Auto-launch / Startup manager if available.',
       'Keep Accessibility Service enabled.',
@@ -52,7 +52,7 @@ export const OEM_GUIDES = {
     title: 'OnePlus',
     autostartNote: 'Please verify Auto-launch manually.',
     steps: [
-      'Open Settings → Apps → App management → SUPER RIDEX.',
+      'Open Settings → Apps → App management → AG rider.',
       'Battery → Allow background activity / Unrestricted where available.',
       'Enable Auto-launch if shown.',
       'Keep Accessibility Service enabled.',
@@ -63,7 +63,7 @@ export const OEM_GUIDES = {
     autostartNote: 'Check “Never sleeping apps” manually.',
     steps: [
       'Open Settings → Battery → Background usage limits.',
-      'Add SUPER RIDEX to Never sleeping apps.',
+      'Add AG rider to Never sleeping apps.',
       'Remove it from Sleeping / Deep sleeping apps if listed.',
       'Avoid aggressive Power saving while online for rides.',
       'Keep Accessibility Service enabled.',
@@ -73,7 +73,7 @@ export const OEM_GUIDES = {
     title: 'Motorola',
     autostartNote: 'Please verify battery background setting manually.',
     steps: [
-      'Open Settings → Apps → SUPER RIDEX.',
+      'Open Settings → Apps → AG rider.',
       'App battery usage → Allow background / Unrestricted if needed.',
       'Check Battery optimization is not restricting the app.',
       'Keep Accessibility Service enabled.',
@@ -83,7 +83,7 @@ export const OEM_GUIDES = {
     title: 'Google Pixel / Stock Android',
     autostartNote: 'No OEM Auto-start menu — use App battery usage.',
     steps: [
-      'Open Settings → Apps → SUPER RIDEX → App battery usage.',
+      'Open Settings → Apps → AG rider → App battery usage.',
       'Choose Unrestricted if you need maximum background reliability.',
       'Note: Unrestricted can use more battery.',
       'Keep Accessibility Service enabled.',
@@ -93,7 +93,7 @@ export const OEM_GUIDES = {
     title: 'Android (other OEM)',
     autostartNote: 'Please verify Auto-start / background manually.',
     steps: [
-      'Open Settings → Apps → SUPER RIDEX.',
+      'Open Settings → Apps → AG rider.',
       'Allow background activity / disable battery restriction where shown.',
       'Look for Autostart / Auto-launch if your phone has it.',
       'Keep Accessibility Service enabled.',
@@ -103,44 +103,4 @@ export const OEM_GUIDES = {
 
 export function getOemGuide(oemId) {
   return OEM_GUIDES[oemId] || OEM_GUIDES.generic;
-}
-
-export const DIAGNOSE_COPY = {
-  A: {
-    title: 'Accessibility stopped',
-    detail: 'Accessibility service stopped. Turn it ON again for SUPER RIDEX.',
-  },
-  B: {
-    title: 'No accessibility events',
-    detail: 'Service connected, but no accessibility events are being received.',
-  },
-  C: {
-    title: 'Ride detection quiet',
-    detail: 'Accessibility events active, ride detection failed (or no ride yet).',
-  },
-  D: {
-    title: 'Accept not found',
-    detail: 'Ride detected, Accept control not found.',
-  },
-  E: {
-    title: 'Click failed',
-    detail: 'Accept detected, click action failed.',
-  },
-  F: {
-    title: 'Next ride missed',
-    detail: 'Previous acceptance succeeded; subsequent ride detection failed.',
-  },
-  OK: {
-    title: 'Healthy',
-    detail: 'Service looks healthy within Android/OEM limits.',
-  },
-};
-
-export function formatAge(ms) {
-  if (ms == null || ms < 0) return '—';
-  if (ms < 1000) return `${ms} ms ago`;
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} sec ago`;
-  const m = Math.round(s / 60);
-  return `${m} min ago`;
 }

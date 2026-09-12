@@ -6,6 +6,7 @@ import {
 import Screen from '../components/Screen';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
+import AppHeader, { SectionTitle } from '../components/AppHeader';
 import { navigateRoot, replaceRoot } from '../navigation/rootNavigation';
 import { getStoredUser, clearUser } from '../utils/storage';
 import { useSubscription } from '../hooks/useSubscription';
@@ -34,7 +35,7 @@ export default function ProfileScreen({ navigation }) {
   }, []);
 
   const handleCopyCode = async () => {
-    const message = `Join SUPER RIDEX! Use my referral code ${referralCode} when you sign up. Auto-accept rides faster!`;
+    const message = `Join AG rider! Use my referral code ${referralCode} when you sign up. Auto-accept rides faster!`;
     try {
       await Share.share({ message });
     } catch {
@@ -43,7 +44,11 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const handleLogout = async () => {
-    await clearUser();
+    try {
+      await clearUser();
+    } catch {
+      /* still leave */
+    }
     replaceRoot(navigation, 'Login');
   };
 
@@ -51,16 +56,18 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <Screen edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>My Profile</Text>
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <AppHeader
+        eyebrow="ACCOUNT"
+        title="Your profile"
+        subtitle="Membership, shortcuts and referral rewards."
+      />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.userCard}>
           <View style={styles.avatarRow}>
             <View style={styles.avatar}>
-              <Ionicons name="person" size={28} color={colors.purpleBright} />
+              <Text style={styles.avatarLetter}>{phone ? phone.slice(-2) : 'AG'}</Text>
             </View>
             <View style={styles.userMeta}>
               <Text style={styles.userName}>Driver</Text>
@@ -68,59 +75,66 @@ export default function ProfileScreen({ navigation }) {
             </View>
             <View style={[styles.statusBadge, isActive ? styles.badgeOn : styles.badgeOff]}>
               <Text style={[styles.statusBadgeText, isActive ? styles.textOn : styles.textOff]}>
-                {isActive ? 'ON' : 'OFF'}
+                {isActive ? 'ACTIVE' : 'EXPIRED'}
               </Text>
             </View>
           </View>
 
-          <View style={styles.divider} />
-
-          {[
-            { label: 'Phone', value: phone || '—' },
-            { label: 'Plan Expiry', value: formatExpiryDate(subscriptionEnd) },
-          ].map((row, i) => (
-            <View key={i} style={styles.detailRow}>
-              <Text style={styles.detailLabel}>{row.label}</Text>
-              <Text style={[styles.detailValue, row.valueColor && { color: row.valueColor }]}>
-                {row.value}
-              </Text>
+          <View style={styles.detailGrid}>
+            <View style={styles.detailTile}>
+              <Text style={styles.detailLabel}>Phone</Text>
+              <Text style={styles.detailValue}>{phone || '—'}</Text>
             </View>
-          ))}
+            <View style={styles.detailTile}>
+              <Text style={styles.detailLabel}>Plan expiry</Text>
+              <Text style={styles.detailValue}>{formatExpiryDate(subscriptionEnd)}</Text>
+            </View>
+          </View>
         </View>
 
+        <SectionTitle label="SHORTCUTS" title="Quick actions" />
         <View style={styles.quickRow}>
           <TouchableOpacity style={styles.quickBtn} onPress={() => navigation.navigate('SettingsTab')}>
-            <Ionicons name="settings-outline" size={22} color={colors.purpleBright} />
+            <View style={styles.quickIcon}>
+              <Ionicons name="settings-outline" size={20} color={colors.purpleBright} />
+            </View>
             <Text style={styles.quickBtnText}>Settings</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.quickBtn} onPress={() => navigateRoot(navigation, 'Plans')}>
-            <Ionicons name="card-outline" size={22} color={colors.purpleBright} />
+            <View style={styles.quickIcon}>
+              <Ionicons name="card-outline" size={20} color={colors.purpleBright} />
+            </View>
             <Text style={styles.quickBtnText}>Renew</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.quickBtn} onPress={() => navigateRoot(navigation, 'PermissionsSetup')}>
-            <Ionicons name="shield-checkmark-outline" size={22} color={colors.purpleBright} />
-            <Text style={styles.quickBtnText}>Permissions</Text>
+            <View style={styles.quickIcon}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={colors.purpleBright} />
+            </View>
+            <Text style={styles.quickBtnText}>Access</Text>
           </TouchableOpacity>
         </View>
 
         {/* Referral Program */}
-        <View style={styles.referralHeader}>
-          <View style={[styles.sectionBar, { backgroundColor: colors.purple }]} />
-          <Text style={[styles.sectionTitle, { color: colors.icy }]}>Referral Program</Text>
-        </View>
+        <SectionTitle label="REWARDS" title="Referral program" />
 
         <View style={styles.referralCard}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-            <Ionicons name="gift-outline" size={18} color={colors.onGreen} style={{ marginTop: 2 }} />
-            <Text style={[styles.referralReward, { flex: 1 }]}>
+          <View style={styles.referralHead}>
+            <View style={styles.giftDot}>
+              <Ionicons name="gift-outline" size={18} color={colors.onGreen} />
+            </View>
+            <Text style={styles.referralReward}>
               Refer {REFERRAL_GOAL} people who pay for at least 1 month → get <Text style={styles.rewardHighlight}>1 month FREE</Text>
             </Text>
           </View>
 
+          <View style={styles.ticketCut} />
+
           <View style={styles.inviteRow}>
-            <Text style={styles.inviteLabel}>Your Invite Code</Text>
+            <View>
+              <Text style={styles.inviteLabel}>Invite code</Text>
+              <Text style={styles.inviteCodePlain}>{refLoading ? '…' : referralCode}</Text>
+            </View>
             <TouchableOpacity style={styles.inviteCodeBtn} onPress={handleCopyCode} activeOpacity={0.85}>
-              <Text style={styles.inviteCode}>{refLoading ? '…' : referralCode}</Text>
               <Text style={styles.copyIcon}>Share</Text>
             </TouchableOpacity>
           </View>
@@ -167,7 +181,7 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
-          <Text style={styles.logoutText}>LOGOUT SECURELY</Text>
+          <Text style={styles.logoutText}>Log out securely</Text>
         </TouchableOpacity>
       </ScrollView>
     </Screen>
@@ -175,78 +189,82 @@ export default function ProfileScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  header: { paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border, alignItems: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: colors.icy },
-  scroll: { padding: 20, gap: 16, paddingBottom: 40 },
+  scroll: { paddingHorizontal: 20, paddingTop: 8, gap: 14, paddingBottom: 40 },
 
   userCard: {
-    backgroundColor: colors.surface, borderRadius: 14, padding: 20,
-    borderWidth: 1, borderColor: colors.border, gap: 12,
+    backgroundColor: colors.surfaceCard, borderRadius: 28, padding: 18, gap: 16,
   },
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatar: {
-    width: 60, height: 60, borderRadius: 30, backgroundColor: colors.surfaceLight,
-    borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center',
+    width: 64, height: 64, borderRadius: 32, backgroundColor: colors.purple,
+    alignItems: 'center', justifyContent: 'center',
   },
-  avatarGlyph: { fontSize: 28 },
+  avatarLetter: { fontSize: 26, fontWeight: '800', color: colors.background },
   userMeta: { flex: 1 },
-  userName: { fontSize: 20, fontWeight: '800', color: colors.icy },
+  userName: { fontSize: 22, fontWeight: '800', color: colors.icy, letterSpacing: -0.4 },
   userPhone: { fontSize: 13, color: colors.icyDim, marginTop: 3 },
-  statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
-  badgeOn: { backgroundColor: colors.onGreenDim, borderWidth: 1, borderColor: colors.onGreen },
-  badgeOff: { backgroundColor: colors.offRedDim, borderWidth: 1, borderColor: colors.offRed },
-  statusBadgeText: { fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+  statusBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  badgeOn: { backgroundColor: colors.onGreenDim },
+  badgeOff: { backgroundColor: colors.offRedDim },
+  statusBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   textOn: { color: colors.onGreen },
   textOff: { color: colors.offRed },
+  detailGrid: { flexDirection: 'row', gap: 10 },
+  detailTile: {
+    flex: 1, backgroundColor: colors.surfaceLight, borderRadius: 16, padding: 12, gap: 4,
+  },
+  detailLabel: { fontSize: 11, color: colors.icyMuted, fontWeight: '700' },
+  detailValue: { fontSize: 14, fontWeight: '800', color: colors.icy },
   divider: { height: 1, backgroundColor: colors.border },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  detailLabel: { fontSize: 14, color: colors.icyDim },
-  detailValue: { fontSize: 14, fontWeight: '700', color: colors.icy },
 
   quickRow: { flexDirection: 'row', gap: 10 },
   quickBtn: {
-    flex: 1, alignItems: 'center', gap: 6, paddingVertical: 16,
-    backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+    flex: 1, alignItems: 'center', gap: 8, paddingVertical: 14,
+    backgroundColor: colors.surfaceCard, borderRadius: 22,
   },
-  quickBtnIcon: { fontSize: 22 },
-  quickBtnText: { fontSize: 12, fontWeight: '600', color: colors.icyDim },
-
-  referralHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  sectionBar: { width: 4, height: 20, borderRadius: 2 },
-  sectionTitle: { fontSize: 14, fontWeight: '700', letterSpacing: 0.5 },
+  quickIcon: {
+    width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surfaceLight,
+  },
+  quickBtnText: { fontSize: 12, fontWeight: '700', color: colors.icyDim },
 
   referralCard: {
-    backgroundColor: colors.surface, borderRadius: 14, padding: 20,
-    borderWidth: 1, borderColor: colors.border, gap: 14,
+    backgroundColor: colors.surfaceCard, borderRadius: 28, padding: 18, gap: 14,
   },
-  referralReward: { fontSize: 14, color: colors.icyDim, lineHeight: 22 },
-  rewardHighlight: { color: colors.onGreen, fontWeight: '900' },
+  referralHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  giftDot: {
+    width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.onGreenDim,
+  },
+  referralReward: { flex: 1, fontSize: 14, color: colors.icyDim, lineHeight: 21 },
+  rewardHighlight: { color: colors.onGreen, fontWeight: '800' },
+  ticketCut: {
+    height: 1, backgroundColor: colors.border,
+  },
   inviteRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  inviteLabel: { fontSize: 14, color: colors.icyDim },
+  inviteLabel: { fontSize: 12, color: colors.icyMuted, fontWeight: '700' },
+  inviteCodePlain: { fontSize: 20, fontWeight: '800', color: colors.icy, letterSpacing: 1.4, marginTop: 3 },
   inviteCodeBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: colors.purple, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: colors.purple, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 999,
   },
-  inviteCode: { fontSize: 17, fontWeight: '900', color: colors.white, letterSpacing: 2 },
-  copyIcon: { fontSize: 12, color: colors.white, fontWeight: '700' },
+  copyIcon: { fontSize: 13, color: colors.background, fontWeight: '800' },
 
   progressWrap: { gap: 8 },
-  progressBarBg: { height: 10, backgroundColor: colors.border, borderRadius: 5, overflow: 'hidden' },
-  progressBarFill: { height: 10, backgroundColor: colors.onGreen, borderRadius: 5 },
+  progressBarBg: { height: 8, backgroundColor: colors.surfaceLight, borderRadius: 4, overflow: 'hidden' },
+  progressBarFill: { height: 8, backgroundColor: colors.onGreen, borderRadius: 4 },
   progressText: { fontSize: 12, color: colors.icyDim },
 
   refStats: { flexDirection: 'row', alignItems: 'center' },
   refStat: { flex: 1, alignItems: 'center', gap: 4 },
-  refStatValue: { fontSize: 28, fontWeight: '900', color: colors.icy },
+  refStatValue: { fontSize: 26, fontWeight: '800', color: colors.icy },
   refStatLabel: { fontSize: 11, color: colors.icyDim, textAlign: 'center' },
-  refDivider: { width: 1, height: 40, backgroundColor: colors.border },
+  refDivider: { width: 1, height: 36, backgroundColor: colors.border },
   refRules: { fontSize: 12, color: colors.icyMuted, lineHeight: 20 },
   refreshBtn: { alignItems: 'center', paddingVertical: 8 },
   refreshText: { color: colors.blue, fontSize: 13, fontWeight: '600' },
 
   logoutBtn: {
-    borderWidth: 1.5, borderColor: colors.offRed, borderRadius: 14,
-    paddingVertical: 16, alignItems: 'center', backgroundColor: colors.offRedDim,
+    borderRadius: 999, paddingVertical: 16, alignItems: 'center', backgroundColor: colors.offRedDim,
   },
-  logoutText: { color: colors.offRed, fontSize: 14, fontWeight: '900', letterSpacing: 1.5 },
+  logoutText: { color: colors.offRed, fontSize: 14, fontWeight: '800' },
 });

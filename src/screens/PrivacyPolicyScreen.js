@@ -1,15 +1,21 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity,
+  View, Text, StyleSheet, StatusBar, ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import Screen from '../components/Screen';
 import { colors } from '../theme/colors';
+import AppHeader from '../components/AppHeader';
 
 function Section({ title, children }) {
+  const [num, ...rest] = title.split('. ');
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <View style={styles.sectionHead}>
+        <View style={styles.numBadge}>
+          <Text style={styles.numText}>{num}</Text>
+        </View>
+        <Text style={styles.sectionTitle}>{rest.join('. ')}</Text>
+      </View>
       {children}
     </View>
   );
@@ -22,31 +28,27 @@ function P({ children }) {
 export default function PrivacyPolicyScreen({ navigation }) {
   return (
     <Screen edges={['top', 'bottom']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => navigation.goBack()}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.icy} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Privacy Policy</Text>
-        <View style={styles.backBtn} />
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <AppHeader
+        eyebrow="LEGAL"
+        title="Privacy policy"
+        subtitle="How AG rider handles your information."
+        onBack={() => navigation.goBack()}
+      />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.updated}>Last updated: 28 July 2026</Text>
+        <View style={styles.dateChip}>
+          <Text style={styles.updated}>Updated 28 July 2026</Text>
+        </View>
         <Text style={styles.lead}>
-          SUPER RIDEX (“we”, “our”, or “the App”) is designed as an accessibility
+          AG rider (“we”, “our”, or “the App”) is designed as an accessibility
           assistive tool. This Privacy Policy explains what information we
           process, why we process it, and the choices available to you.
         </Text>
 
         <Section title="1. Purpose of the App">
           <P>
-            SUPER RIDEX helps drivers who experience motor, coordination, vision,
+            AG rider helps drivers who experience motor, coordination, vision,
             or related difficulties interact with ride-request screens more
             reliably. The App uses Android Accessibility Service capabilities so
             that eligible users can activate an on-screen Accept control when they
@@ -62,7 +64,7 @@ export default function PrivacyPolicyScreen({ navigation }) {
 
         <Section title="2. Information We Process">
           <P>
-            Depending on how you use SUPER RIDEX, we may process:
+            Depending on how you use AG rider, we may process:
           </P>
           <P>
             • Account details you provide (such as your mobile number) for
@@ -123,7 +125,7 @@ export default function PrivacyPolicyScreen({ navigation }) {
 
         <Section title="7. Children’s Privacy">
           <P>
-            SUPER RIDEX is intended for adult professional drivers. It is not
+            AG rider is intended for adult professional drivers. It is not
             directed to children.
           </P>
         </Section>
@@ -137,7 +139,7 @@ export default function PrivacyPolicyScreen({ navigation }) {
 
         <Section title="9. Contact">
           <P>
-            For privacy questions about SUPER RIDEX, contact us through the
+            For privacy questions about AG rider, contact us through the
             support channels listed in the App.
           </P>
         </Section>
@@ -147,42 +149,36 @@ export default function PrivacyPolicyScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40, gap: 12 },
+  dateChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surfaceCard,
+    borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingVertical: 6,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 17,
-    fontWeight: '800',
-    color: colors.icy,
-  },
-  scroll: { padding: 20, paddingBottom: 40, gap: 8 },
-  updated: { fontSize: 12, color: colors.icyMuted, marginBottom: 8 },
+  updated: { fontSize: 12, color: colors.icyMuted, fontWeight: '700' },
   lead: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: colors.icyDim,
-    marginBottom: 12,
-  },
-  section: { marginTop: 14, gap: 8 },
-  sectionTitle: {
     fontSize: 15,
+    lineHeight: 23,
+    color: colors.icyDim,
+    marginBottom: 4,
+  },
+  section: {
+    gap: 8, padding: 16,
+    backgroundColor: colors.surfaceCard, borderRadius: 22,
+  },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 2 },
+  numBadge: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: colors.purple, alignItems: 'center', justifyContent: 'center',
+  },
+  numText: { color: colors.background, fontSize: 12, fontWeight: '800' },
+  sectionTitle: {
+    flex: 1,
+    fontSize: 16,
     fontWeight: '800',
     color: colors.icy,
-    marginBottom: 2,
   },
   para: {
     fontSize: 14,

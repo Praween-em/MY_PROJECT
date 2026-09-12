@@ -1,45 +1,52 @@
 export const colors = {
-  // ── Backgrounds (light professional) ────────────────────────────────────────
-  background:   '#F4F7FB',   // soft blue-white
-  surface:      '#FFFFFF',   // elevated surface
-  surfaceLight: '#EEF3F9',   // card / input fill
-  surfaceCard:  '#FFFFFF',   // card
+  // ── AG rider forest deck ──────────────────────────────────────────────
+  background:   '#021108',
+  surface:      '#082014',
+  surfaceLight: '#123224',
+  surfaceCard:  '#0B2719',
 
-  // ── Brand accent (professional blue — keys kept for existing call sites) ────
-  purple:       '#1565C0',   // primary professional blue
-  purpleBright: '#1E88E5',   // lighter blue for icons / highlights
-  purpleDim:    '#0D47A1',   // darker blue
-  purpleGlow:   '#1565C018', // subtle blue wash
+  // Primary mint — kept as "purple" aliases so existing call sites stay visual-only.
+  purple:       '#2AD47A',
+  purpleBright: '#86F0B4',
+  purpleDim:    '#12824A',
+  purpleGlow:   '#2AD47A2E',
 
-  blue:         '#1976D2',   // secondary blue
-  blueBright:   '#42A5F5',   // lighter secondary
-  blueDim:      '#0D47A1',   // dark blue
-  blueGlow:     '#1976D218', // subtle blue wash
+  // Soft teal for secondary actions.
+  blue:         '#3CCB8C',
+  blueBright:   '#8FE8BC',
+  blueDim:      '#1A6B48',
+  blueGlow:     '#3CCB8C24',
+
+  // Warm leaf highlight.
+  gold:         '#C8E878',
+  goldBright:   '#E8F7B0',
+  goldDim:      '#7A9A42',
+  goldGlow:     '#C8E87822',
 
   // ── Text ─────────────────────────────────────────────────────────────────────
-  icy:          '#1A2332',   // primary text (dark on light)
-  icyDim:       '#5A6A7A',   // secondary text
-  icyMuted:     '#8A9AAA',   // tertiary / placeholder
+  icy:          '#F3FBF6',
+  icyDim:       '#B4CFC0',
+  icyMuted:     '#6E8B78',
 
   // ── Borders ───────────────────────────────────────────────────────────────────
-  border:       '#E2E8F0',   // default subtle border
-  borderPurple: '#1565C044', // blue accent border
-  borderBlue:   '#1976D255', // secondary blue border
-  borderIcy:    '#1A233218', // faint dark border
+  border:       '#8BB89A2E',
+  borderPurple: '#2AD47A66',
+  borderBlue:   '#3CCB8C55',
+  borderIcy:    '#F3FBF618',
 
-  // ── On / Off (app-wide toggles) ─────────────────────────────────────────────
-  onGreen:      '#16A34A',
-  onGreenDim:   '#16A34A18',
-  offRed:       '#DC2626',
-  offRedDim:    '#DC262618',
+  // ── On / Off ────────────────────────────────────────────────────────────────
+  onGreen:      '#3BE08A',
+  onGreenDim:   '#3BE08A22',
+  offRed:       '#F26D6D',
+  offRedDim:    '#F26D6D1C',
 
   // ── Semantic ──────────────────────────────────────────────────────────────────
-  success:      '#16A34A',
-  successDim:   '#16A34A18',
-  danger:       '#DC2626',
-  dangerDim:    '#DC262618',
-  warning:      '#D97706',
-  warningDim:   '#D9770618',
+  success:      '#3BE08A',
+  successDim:   '#3BE08A22',
+  danger:       '#F26D6D',
+  dangerDim:    '#F26D6D1C',
+  warning:      '#F3B94F',
+  warningDim:   '#F3B94F20',
 
   white:        '#FFFFFF',
   black:        '#000000',
