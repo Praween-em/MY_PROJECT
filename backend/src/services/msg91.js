@@ -26,12 +26,17 @@ function isOk(data) {
 }
 
 async function postVerify(authkey, token, mode) {
+  const headers = {
+    Accept: 'application/json',
+    authkey,
+  };
+
   if (mode === 'json') {
     return fetch(MSG91_VERIFY_URL, {
       method: 'POST',
       headers: {
+        ...headers,
         'Content-Type': 'application/json',
-        Accept: 'application/json',
       },
       body: JSON.stringify({
         authkey,
@@ -41,15 +46,14 @@ async function postVerify(authkey, token, mode) {
     });
   }
 
-  // form-urlencoded (Ruby SDK style)
   const form = new URLSearchParams();
   form.append('authkey', authkey);
   form.append('access-token', token);
   return fetch(MSG91_VERIFY_URL, {
     method: 'POST',
     headers: {
+      ...headers,
       'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
     },
     body: form.toString(),
   });
@@ -84,7 +88,7 @@ async function verifyAccessToken(accessToken) {
   if (
     data?.type === 'error' &&
     typeof data?.message === 'string' &&
-    /access-token field is required/i.test(data.message)
+    (/access-token field is required/i.test(data.message) || /authenticationfailure/i.test(data.message))
   ) {
     res = await postVerify(authkey, token, 'form');
     data = await res.json().catch(() => ({}));
