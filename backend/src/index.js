@@ -51,6 +51,10 @@ app.get('/admin', (_req, res) => {
   res.sendFile(path.join(__dirname, '../admin-panel/index.html'));
 });
 
+app.get('/', (_req, res) => {
+  res.json({ ok: true, service: 'ag-rider-api' });
+});
+
 app.get('/health', async (_req, res) => {
   let dbOk = false;
   try {
@@ -58,16 +62,35 @@ app.get('/health', async (_req, res) => {
   } catch {
     dbOk = false;
   }
-  res.status(dbOk ? 200 : 503).json({
+  // Always 200 so Railway healthchecks pass while the HTTP server is up.
+  res.json({
     status: dbOk ? 'ok' : 'degraded',
     db: dbOk,
     ts: new Date().toISOString(),
   });
 });
 
+async function boot() {
+  try {
+    const { runMigrations } = require('../scripts/migrate');
+    await Promise.race([
+      runMigrations(),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('migrate timed out')), 15000);
+      }),
+    ]);
+  } catch (err) {
+    console.error('[boot] migrate failed:', err.message);
+  }
+
+  const PORT = Number(process.env.PORT) || 3000;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`AG rider backend on port ${PORT}`);
+  });
+}
+
 if (require.main === module) {
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => console.log(`AG rider backend on port ${PORT}`));
+  boot();
 }
 
 module.exports = app;

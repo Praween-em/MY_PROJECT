@@ -14,5 +14,4 @@ COPY scripts/ ./scripts/
 EXPOSE 3000
 ENV NODE_ENV=production
 
-# Run migrations then start (safe: migrations are idempotent)
-CMD ["sh", "-c", "node scripts/migrate.js && node src/index.js"]
+CMD ["node", "src/index.js"]

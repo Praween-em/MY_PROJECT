@@ -81,7 +81,19 @@ async function request(method, path, body, token) {
     );
   }
 
-  const data = await res.json().catch(() => ({}));
+  const raw = await res.text();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    if (/application failed to respond/i.test(raw) || res.status >= 502) {
+      throw new ApiError(
+        'Backend is not running. Open Railway logs and confirm /health returns JSON.',
+        { status: res.status, code: 'BACKEND_DOWN' }
+      );
+    }
+    data = { message: raw.slice(0, 160) || 'Request failed' };
+  }
   if (!res.ok) {
     throw new ApiError(data.message || 'Request failed', {
       status: res.status,

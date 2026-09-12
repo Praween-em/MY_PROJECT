@@ -12,10 +12,9 @@ if (envFile) require('dotenv').config({ path: envFile });
 
 const { pool, query } = require('../src/config/db');
 
-async function migrate() {
+async function runMigrations({ closePool = false } = {}) {
   if (!process.env.DATABASE_URL) {
-    console.error('DATABASE_URL is required');
-    process.exit(1);
+    throw new Error('DATABASE_URL is required');
   }
 
   await query(`
@@ -42,11 +41,15 @@ async function migrate() {
   }
 
   console.log('Migrations complete.');
-  await pool.end();
+  if (closePool) await pool.end();
 }
 
-migrate().catch(async (err) => {
-  console.error(err);
-  try { await pool.end(); } catch { /* ignore */ }
-  process.exit(1);
-});
+if (require.main === module) {
+  runMigrations({ closePool: true }).catch(async (err) => {
+    console.error(err);
+    try { await pool.end(); } catch { /* ignore */ }
+    process.exit(1);
+  });
+}
+
+module.exports = { runMigrations };

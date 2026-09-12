@@ -10,10 +10,19 @@ if (!connectionString) {
   console.warn('[db] DATABASE_URL is not set — database calls will fail until configured.');
 }
 
+function shouldUseSsl(url) {
+  if (process.env.DATABASE_SSL === 'false') return false;
+  if (process.env.DATABASE_SSL === 'true') return true;
+  if (process.env.RAILWAY_ENVIRONMENT) return true;
+  if (process.env.NODE_ENV === 'production') return true;
+  return /railway\.app|rlwy\.net|proxy\.rlwy/i.test(String(url || ''));
+}
+
 const pool = new Pool({
   connectionString,
-  ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+  ssl: shouldUseSsl(connectionString) ? { rejectUnauthorized: false } : undefined,
   max: 10,
+  connectionTimeoutMillis: 8000,
 });
 
 pool.on('error', (err) => {
