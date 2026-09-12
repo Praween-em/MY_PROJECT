@@ -82,7 +82,8 @@ function startServer() {
     railway: Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID),
     nodeEnv: process.env.NODE_ENV || 'undefined',
   });
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  // Omit host so Node accepts IPv4 and IPv6. Railway's proxy may use IPv6.
+  const server = app.listen(PORT, () => {
     console.log(`AG rider backend on port ${PORT}`);
     const { runMigrations } = require('../scripts/migrate');
     runMigrations().catch((err) => {
