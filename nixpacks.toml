@@ -1,0 +1,6 @@
+# If Railway uses Nixpacks instead of Docker, still run the Express API.
+[phases.install]
+cmds = ["npm ci --omit=dev --prefix backend"]
+
+[start]
+cmd = "node backend/src/index.js"

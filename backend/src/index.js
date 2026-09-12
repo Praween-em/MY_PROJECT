@@ -70,27 +70,24 @@ app.get('/health', async (_req, res) => {
   });
 });
 
-async function boot() {
-  try {
-    const { runMigrations } = require('../scripts/migrate');
-    await Promise.race([
-      runMigrations(),
-      new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('migrate timed out')), 15000);
-      }),
-    ]);
-  } catch (err) {
-    console.error('[boot] migrate failed:', err.message);
-  }
-
+function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
+  console.log('[boot] starting API', {
+    port: PORT,
+    hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+    nodeEnv: process.env.NODE_ENV || 'undefined',
+  });
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`AG rider backend on port ${PORT}`);
+    const { runMigrations } = require('../scripts/migrate');
+    runMigrations().catch((err) => {
+      console.error('[boot] migrate failed:', err.message);
+    });
   });
 }
 
 if (require.main === module) {
-  boot();
+  startServer();
 }
 
 module.exports = app;
