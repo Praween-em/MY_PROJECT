@@ -70,20 +70,30 @@ app.get('/health', async (_req, res) => {
   });
 });
 
+let started = false;
+
 function startServer() {
+  if (started) return app;
+  started = true;
   const PORT = Number(process.env.PORT) || 3000;
   console.log('[boot] starting API', {
     port: PORT,
     hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+    railway: Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID),
     nodeEnv: process.env.NODE_ENV || 'undefined',
   });
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`AG rider backend on port ${PORT}`);
     const { runMigrations } = require('../scripts/migrate');
     runMigrations().catch((err) => {
       console.error('[boot] migrate failed:', err.message);
     });
   });
+  server.on('error', (err) => {
+    console.error('[boot] listen failed:', err.message);
+    process.exit(1);
+  });
+  return app;
 }
 
 if (require.main === module) {
@@ -91,3 +101,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+module.exports.startServer = startServer;

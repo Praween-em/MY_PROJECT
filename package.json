@@ -9,9 +9,12 @@
     "@react-navigation/bottom-tabs": "^7.18.8",
     "@react-navigation/native": "^7.3.8",
     "@react-navigation/native-stack": "^7.17.10",
+    "cors": "^2.8.6",
     "expo": "~57.0.4",
     "expo-splash-screen": "~57.0.4",
     "expo-status-bar": "~57.0.0",
+    "express": "^4.22.2",
+    "pg": "^8.23.0",
     "react": "19.2.3",
     "react-native": "0.86.0",
     "react-native-gesture-handler": "~2.32.0",
@@ -19,14 +22,16 @@
     "react-native-screens": "4.25.2"
   },
   "scripts": {
-    "start": "expo start",
+    "start": "node start.js",
+    "start:expo": "expo start",
+    "start:api": "node backend/src/index.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "env:check": "node scripts/check-env.js"
   },
   "devDependencies": {
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.6.1"
   },
   "private": true
 }

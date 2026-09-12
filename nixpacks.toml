@@ -3,4 +3,4 @@
 cmds = ["npm ci --omit=dev --prefix backend"]
 
 [start]
-cmd = "node backend/src/index.js"
+cmd = "node start.js"
