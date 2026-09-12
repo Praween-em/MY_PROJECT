@@ -85,7 +85,7 @@ export default {
     extra: {
       apiUrl:
         process.env.EXPO_PUBLIC_API_URL ||
-        'https://superridexversion2-production.up.railway.app',
+        'https://myproject-production-e2d4.up.railway.app',
       msg91WidgetId,
       msg91AuthToken,
     },

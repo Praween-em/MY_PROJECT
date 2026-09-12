@@ -10,6 +10,7 @@ import AppHeader from '../components/AppHeader';
 import { navigateRoot, replaceRoot } from '../navigation/rootNavigation';
 import { getStoredUser, clearUser } from '../utils/storage';
 import { usePermissions } from '../hooks/usePermissions';
+import { getApiBaseUrl } from '../services/api';
 
 function SectionLabel({ children }) {
   return (
@@ -90,6 +91,11 @@ export default function SettingsScreen({ navigation }) {
             sub="View plans"
             subColor={colors.purpleBright}
             onPress={() => navigateRoot(navigation, 'Plans')}
+          />
+          <SettingRow
+            icon={<Ionicons name="cloud-outline" size={18} color={colors.purpleBright} />}
+            title="Backend"
+            sub={getApiBaseUrl()}
             separator={false}
           />
         </View>

@@ -16,7 +16,7 @@ function resolveBaseUrl() {
     url = `https://${url}`;
   }
   // Production Railway backend (admin panel + DB social links live here)
-  return url || 'https://superridexversion2-production.up.railway.app';
+  return url || 'https://myproject-production-e2d4.up.railway.app';
 }
 
 const BASE_URL = resolveBaseUrl();
