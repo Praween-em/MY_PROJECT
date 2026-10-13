@@ -91,6 +91,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="overview">Overview</button>
         <button class="tab" data-tab="subscriptions">Subscriptions</button>
+        <button class="tab" data-tab="orders">Pending orders</button>
         <button class="tab" data-tab="users">Users</button>
         <button class="tab" data-tab="plans">Plan Pricing</button>
         <button class="tab" data-tab="payment-contact">Payment Contact</button>
@@ -119,6 +120,15 @@
           <button class="ghost" id="refreshSubs">Refresh</button>
         </div>
         <div id="subsTable" style="overflow-x:auto"></div>
+      </div>
+
+      <div id="tab-orders" class="card tab-panel hidden">
+        <div class="toolbar">
+          <h3 class="section-title" style="margin:0;flex:1">Orders awaiting confirmation</h3>
+          <button class="ghost" id="refreshOrders">Refresh</button>
+        </div>
+        <p class="muted">These are plans a user selected in the app. Money is not captured here. Confirm only after you have checked the Telegram payment. Confirm grants that plan. Reject does not.</p>
+        <div id="ordersTable" style="overflow-x:auto;margin-top:14px"></div>
       </div>
 
       <div id="tab-users" class="card tab-panel hidden">
@@ -156,7 +166,7 @@
 
       <div id="tab-payment-contact" class="card tab-panel hidden">
         <h3 class="section-title">Telegram Payment Contact</h3>
-        <p class="muted">The app opens this Telegram link when a user chooses a plan. The optional image appears at the bottom of the plans screen. Changes apply without an app rebuild.</p>
+        <p class="muted">The app reads this link every time Plans opens. Saving here does not need an app update. You can paste <code>https://t.me/name</code>, <code>t.me/name</code>, or <code>@name</code>. If this box is empty, the app uses the Telegram URL from Social Links.</p>
         <div style="margin-top:14px">
           <label>Telegram URL</label>
           <input id="paymentTelegramUrl" placeholder="https://t.me/your_username" />
@@ -265,6 +275,7 @@
       document.getElementById('tab-' + name).classList.remove('hidden');
       if (name === 'overview') loadOverview();
       if (name === 'subscriptions') loadSubscriptions();
+      if (name === 'orders') loadOrders();
       if (name === 'users') runSearch();
       if (name === 'plans') loadPlans();
       if (name === 'payment-contact') loadPaymentContact();
@@ -438,6 +449,56 @@
       } catch (e) { el.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
     }
 
+    async function loadOrders() {
+      const el = document.getElementById('ordersTable');
+      el.innerHTML = '<p class="muted">Loading…</p>';
+      try {
+        const { orders } = await api('/orders?limit=100');
+        if (!orders.length) { el.innerHTML = '<p class="muted">No orders waiting</p>'; return; }
+        el.innerHTML = `<table><thead><tr>
+          <th>When</th><th>Phone</th><th>Plan</th><th>Amount</th><th>Days</th><th></th>
+        </tr></thead><tbody>
+          ${orders.map((o) => `<tr data-order="${esc(o.id)}">
+            <td>${fmtDT(o.createdAt)}</td>
+            <td>${esc(o.phone)}</td>
+            <td>${esc(o.planLabel)}</td>
+            <td>${esc(o.priceDisplay)}</td>
+            <td>${o.durationDays}</td>
+            <td>
+              <button class="ok" data-confirm-order="${esc(o.id)}">Confirm</button>
+              <button class="danger" data-reject-order="${esc(o.id)}">Reject</button>
+            </td>
+          </tr>`).join('')}
+        </tbody></table>`;
+        el.querySelectorAll('[data-confirm-order]').forEach((btn) => {
+          btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+              await api('/orders/' + btn.dataset.confirmOrder + '/confirm', { method: 'POST' });
+              await loadOrders();
+            } catch (e) {
+              btn.disabled = false;
+              alert(e.message);
+            }
+          };
+        });
+        el.querySelectorAll('[data-reject-order]').forEach((btn) => {
+          btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+              await api('/orders/' + btn.dataset.rejectOrder + '/reject', { method: 'POST' });
+              await loadOrders();
+            } catch (e) {
+              btn.disabled = false;
+              alert(e.message);
+            }
+          };
+        });
+      } catch (e) { el.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+    }
+
+    document.getElementById('refreshOrders').onclick = () => loadOrders();
+
     async function runSearch() {
       const q = document.getElementById('searchQ').value.trim();
       const list = document.getElementById('userList');
@@ -564,9 +625,12 @@
           method: 'PUT',
           body: JSON.stringify({ telegramUrl }),
         });
+        document.getElementById('paymentTelegramUrl').value = config?.telegramUrl || '';
         renderPaymentImage(config);
         msg.className = 'ok-msg';
-        msg.textContent = 'Telegram payment link saved.';
+        msg.textContent = config?.telegramUrl
+          ? 'Saved. The app will open this link the next time Plans is opened.'
+          : 'Cleared. The app will use the Social Links Telegram URL if one is set.';
         toast('Payment contact saved');
       } catch (e) {
         msg.className = 'error';

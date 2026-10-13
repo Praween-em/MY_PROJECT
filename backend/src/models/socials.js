@@ -116,8 +116,19 @@ async function upsertSocialLinks(input = {}) {
   return updated;
 }
 
+async function getEnabledSocialUrl(key) {
+  const { rows } = await query(
+    `SELECT url FROM social_links
+      WHERE key = $1 AND enabled = TRUE AND TRIM(url) <> ''
+      LIMIT 1`,
+    [key]
+  );
+  return rows[0]?.url || '';
+}
+
 module.exports = {
   listSocialLinks,
+  getEnabledSocialUrl,
   getPublicSocials,
   upsertSocialLinks,
   ALLOWED_KEYS,

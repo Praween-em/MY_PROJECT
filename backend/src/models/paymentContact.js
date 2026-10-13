@@ -8,24 +8,44 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 function normalizeTelegramUrl(value) {
-  const raw = String(value || '').trim();
+  let raw = String(value || '').trim();
   if (!raw) return '';
+
+  if (raw.startsWith('@')) {
+    const name = raw.slice(1).replace(/^\/+/, '');
+    if (!/^[A-Za-z0-9_]{4,64}$/.test(name)) {
+      const err = new Error('Enter a Telegram username like @your_name');
+      err.status = 400;
+      throw err;
+    }
+    raw = `https://t.me/${name}`;
+  } else if (!/^https?:\/\//i.test(raw)) {
+    raw = `https://${raw.replace(/^\/+/, '')}`;
+  }
 
   let parsed;
   try {
     parsed = new URL(raw);
   } catch {
-    const err = new Error('Enter a valid Telegram URL');
+    const err = new Error('Enter a Telegram link, like https://t.me/your_name or @your_name');
     err.status = 400;
     throw err;
   }
 
-  const host = parsed.hostname.toLowerCase();
-  if (parsed.protocol !== 'https:' || !['t.me', 'telegram.me', 'www.telegram.me'].includes(host)) {
-    const err = new Error('Telegram URL must use https://t.me/ or https://telegram.me/');
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (!['t.me', 'telegram.me'].includes(host)) {
+    const err = new Error('Telegram link must be t.me or telegram.me');
     err.status = 400;
     throw err;
   }
+  if (!parsed.pathname || parsed.pathname === '/') {
+    const err = new Error('Telegram link needs a username or invite path');
+    err.status = 400;
+    throw err;
+  }
+
+  parsed.protocol = 'https:';
+  parsed.hostname = host;
   return parsed.toString();
 }
 

@@ -39,6 +39,16 @@ test('accepts telegram.me HTTPS URL', () => {
   normalizeTelegramUrl('https://telegram.me/ag_rider_payments');
 });
 
+test('accepts a bare t.me link', () => {
+  const value = normalizeTelegramUrl('t.me/ag_rider_payments');
+  if (value !== 'https://t.me/ag_rider_payments') throw new Error(value);
+});
+
+test('accepts an @username', () => {
+  const value = normalizeTelegramUrl('@ag_rider_payments');
+  if (value !== 'https://t.me/ag_rider_payments') throw new Error(value);
+});
+
 test('allows clearing the Telegram URL', () => {
   if (normalizeTelegramUrl('') !== '') throw new Error('URL was not cleared');
 });
@@ -47,8 +57,9 @@ test('rejects non-Telegram host', () => {
   expectThrow(() => normalizeTelegramUrl('https://example.com/pay'));
 });
 
-test('rejects insecure Telegram URL', () => {
-  expectThrow(() => normalizeTelegramUrl('http://t.me/ag_rider_payments'));
+test('upgrades an http Telegram URL to https', () => {
+  const value = normalizeTelegramUrl('http://t.me/ag_rider_payments');
+  if (value !== 'https://t.me/ag_rider_payments') throw new Error(value);
 });
 
 test('supports the documented image formats', () => {

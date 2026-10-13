@@ -8,12 +8,18 @@ const {
   getPaymentContactConfig,
   getPaymentImage,
 } = require('../models/paymentContact');
+const { getEnabledSocialUrl } = require('../models/socials');
 
 router.get('/', async (_req, res) => {
   try {
     const config = await getPaymentContactConfig();
+    const socialTelegram = await getEnabledSocialUrl('telegram').catch(() => '');
+    const telegramUrl = config.telegramUrl || socialTelegram || '';
+    res.set('Cache-Control', 'no-store');
     res.json({
       ...config,
+      telegramUrl,
+      source: config.telegramUrl ? 'payment-contact' : (telegramUrl ? 'socials' : 'none'),
       imagePath: config.hasImage && config.imageUpdatedAt
         ? `/payment-contact/image?v=${encodeURIComponent(new Date(config.imageUpdatedAt).getTime())}`
         : null,

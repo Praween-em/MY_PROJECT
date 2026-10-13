@@ -42,6 +42,11 @@ EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3000
 |--------|------|---------|
 | POST | `/referral/register` | Create user + bind device |
 | GET | `/subscription/status` | Sub status + device entitlement |
+| POST | `/subscription/orders` | Place a plan order (awaiting admin confirmation) |
+| GET | `/subscription/orders/pending` | Current user's open order |
+| GET | `/admin/api/orders` | Orders waiting for confirmation |
+| POST | `/admin/api/orders/:id/confirm` | Grant that plan |
+| POST | `/admin/api/orders/:id/reject` | Decline the order |
 | POST | `/entitlement/check` | Gate for auto-accept ON |
 | GET | `/payment-contact` | Telegram payment link + image state |
 | GET | `/payment-contact/image` | Current payment-screen image |
@@ -58,9 +63,9 @@ EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3000
 1. Open `/admin` → **Payment Contact**.
 2. Set the `https://t.me/...` destination.
 3. Upload an optional PNG, JPEG, or WebP image up to 2 MB.
-4. The user chooses a plan and taps **Continue on Telegram**.
-5. Confirm payment in Telegram.
-6. Search the user's phone in `/admin` and grant the selected plan.
+4. The user chooses a plan and taps **Continue on Telegram**. The app records that plan as awaiting confirmation.
+5. Confirm the payment in Telegram.
+6. Open `/admin` → **Pending orders** and confirm that order. Confirming grants the plan. Rejecting leaves the account unchanged.
 
 ## Admin device-change playbook
 

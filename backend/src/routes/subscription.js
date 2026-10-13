@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const { requirePhone, optionalDevice, requireDevice } = require('../middleware/auth');
 const { listPublicPlans } = require('../models/plans');
+const { placeOrder, getAwaitingOrder } = require('../models/subscriptionOrders');
 const { getUserByPhone } = require('../models/user');
 const { assertDeviceAllowed, checkEntitlement, DeviceLimitError } = require('../models/device');
 const { isSubscriptionActive } = require('../models/mapUser');
@@ -14,6 +15,7 @@ const { isSubscriptionActive } = require('../models/mapUser');
 router.get('/plans', async (_req, res) => {
   try {
     const plans = await listPublicPlans();
+    res.set('Cache-Control', 'no-store');
     res.json({ plans });
   } catch (err) {
     console.error('GET /subscription/plans:', err);
@@ -62,6 +64,26 @@ router.get('/status', requirePhone, optionalDevice, async (req, res) => {
     });
   } catch (err) {
     console.error('status error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/** POST /subscription/orders — record the chosen plan as awaiting admin confirmation. */
+router.post('/orders', requirePhone, async (req, res) => {
+  try {
+    const order = await placeOrder(req.phone, req.body?.planId);
+    res.status(201).json({ order });
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message });
+  }
+});
+
+/** GET /subscription/orders/pending — the user's open order, if any. */
+router.get('/orders/pending', requirePhone, async (req, res) => {
+  try {
+    const order = await getAwaitingOrder(req.phone);
+    res.json({ order });
+  } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });

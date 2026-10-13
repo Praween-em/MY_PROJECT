@@ -10,6 +10,7 @@ const { getPublicSocials } = require('../models/socials');
 router.get('/', async (_req, res) => {
   try {
     const data = await getPublicSocials();
+    res.set('Cache-Control', 'no-store');
     res.json(data);
   } catch (err) {
     console.error('GET /socials:', err);

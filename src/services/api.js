@@ -105,7 +105,15 @@ async function request(method, path, body, token) {
 }
 
 export async function getSubscriptionPlans() {
-  return request('GET', '/subscription/plans');
+  return request('GET', `/subscription/plans?t=${Date.now()}`);
+}
+
+export async function placeSubscriptionOrder(phone, planId) {
+  return request('POST', '/subscription/orders', { phone, planId });
+}
+
+export async function getPendingSubscriptionOrder(phone) {
+  return request('GET', `/subscription/orders/pending?phone=${encodeURIComponent(phone)}`);
 }
 
 export async function getSubscriptionStatus(phone) {
@@ -145,12 +153,12 @@ export async function verifyOtpWithServer({ phone, accessToken, referralCode }) 
 
 /** Public social / help links from DB (admin-editable). */
 export async function getSocialLinks() {
-  return request('GET', '/socials');
+  return request('GET', `/socials?t=${Date.now()}`);
 }
 
 /** Backend-managed Telegram payment destination and optional plans-screen image. */
 export async function getPaymentContact() {
-  const data = await request('GET', '/payment-contact');
+  const data = await request('GET', `/payment-contact?t=${Date.now()}`);
   return {
     ...data,
     imageUrl: data.imagePath ? `${BASE_URL}${data.imagePath}` : null,

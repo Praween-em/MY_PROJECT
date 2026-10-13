@@ -28,6 +28,11 @@ const {
   savePaymentImage,
   removePaymentImage,
 } = require('../models/paymentContact');
+const {
+  listAwaitingOrders,
+  getOrderById,
+  setOrderStatus,
+} = require('../models/subscriptionOrders');
 
 router.post('/login', async (req, res) => {
   try {
@@ -300,6 +305,67 @@ router.delete('/payment-contact/image', async (req, res) => {
     const config = await removePaymentImage();
     await logAdminAction(req.admin.id, 'payment-contact.image.remove', null, {});
     res.json({ success: true, config });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.get('/orders', async (req, res) => {
+  try {
+    const orders = await listAwaitingOrders(Number(req.query.limit) || 100);
+    res.json({ orders });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.post('/orders/:id/confirm', async (req, res) => {
+  try {
+    const existing = await getOrderById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Order not found' });
+    if (existing.status !== 'awaiting_confirmation') {
+      return res.status(409).json({ message: 'This order is no longer waiting' });
+    }
+    if (!ALLOWED_PLAN_IDS.has(existing.planId)) {
+      return res.status(400).json({ message: 'Order plan is not grantable' });
+    }
+
+    const user = await ensureUser(existing.phone);
+    const base =
+      user.subscriptionEnd && new Date(user.subscriptionEnd) > new Date()
+        ? new Date(user.subscriptionEnd)
+        : new Date();
+    const updated = await adminUpdateUser(existing.phone, {
+      planType: existing.planId,
+      subscriptionStart: user.subscriptionStart || new Date().toISOString(),
+      subscriptionEnd: await computeSubscriptionEnd(existing.planId, base),
+    });
+    await processReferralOnPayment(updated.phone, existing.planId);
+    const order = await setOrderStatus(existing.id, 'confirmed');
+    await logAdminAction(req.admin.id, 'order.confirm', existing.phone, {
+      orderId: existing.id,
+      planId: existing.planId,
+    });
+    res.json({ order, user: updated });
+  } catch (err) {
+    console.error('admin confirm order:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.post('/orders/:id/reject', async (req, res) => {
+  try {
+    const existing = await getOrderById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Order not found' });
+    if (existing.status !== 'awaiting_confirmation') {
+      return res.status(409).json({ message: 'This order is no longer waiting' });
+    }
+    const order = await setOrderStatus(existing.id, 'rejected');
+    await logAdminAction(req.admin.id, 'order.reject', existing.phone, {
+      orderId: existing.id,
+      planId: existing.planId,
+    });
+    res.json({ order });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

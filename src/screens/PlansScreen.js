@@ -1,13 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   StatusBar, ScrollView, ActivityIndicator, Alert, Linking, Image,
+  RefreshControl,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import Screen from '../components/Screen';
 import { colors } from '../theme/colors';
 import AppHeader, { SectionTitle } from '../components/AppHeader';
 import { getStoredUser } from '../utils/storage';
-import { getPaymentContact, getSubscriptionPlans } from '../services/api';
+import {
+  getPaymentContact,
+  getSubscriptionPlans,
+  getPendingSubscriptionOrder,
+  placeSubscriptionOrder,
+} from '../services/api';
 import { replaceRoot } from '../navigation/rootNavigation';
 
 const PLAN_STYLE = {
@@ -59,32 +66,43 @@ export default function PlansScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [openingTelegram, setOpeningTelegram] = useState(false);
   const [paymentContact, setPaymentContact] = useState(null);
+  const [pendingOrder, setPendingOrder] = useState(null);
   const plan = plans.find(p => p.id === selected);
 
-  const loadPlans = useCallback(async () => {
-    setLoading(true);
+  const loadPlans = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
-      const { plans: remote } = await getSubscriptionPlans();
+      const [{ plans: remote }, contact] = await Promise.all([
+        getSubscriptionPlans(),
+        getPaymentContact().catch(() => null),
+      ]);
       const merged = (remote || []).map(mergePlan);
       setPlans(merged);
       setSelected((prev) => {
         if (prev && merged.some((p) => p.id === prev)) return prev;
         return merged[0]?.id ?? null;
       });
+      setPaymentContact(contact);
+      const user = await getStoredUser();
+      if (user?.phone) {
+        const pending = await getPendingSubscriptionOrder(user.phone).catch(() => null);
+        setPendingOrder(pending?.order || null);
+      }
     } catch (err) {
-      Alert.alert('Could not load plans', err.message || 'Check your connection and try again.');
-      setPlans([]);
+      if (!silent) {
+        Alert.alert('Could not load plans', err.message || 'Check your connection and try again.');
+      }
+      setPlans((current) => (silent ? current : []));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    loadPlans();
-    getPaymentContact()
-      .then(setPaymentContact)
-      .catch(() => setPaymentContact(null));
-  }, [loadPlans]);
+  useFocusEffect(
+    useCallback(() => {
+      loadPlans({ silent: true });
+    }, [loadPlans])
+  );
 
   const handlePay = async () => {
     if (!plan) return;
@@ -95,22 +113,37 @@ export default function PlansScreen({ navigation }) {
       return;
     }
 
-    const telegramUrl = paymentContact?.telegramUrl;
-    if (!telegramUrl) {
-      Alert.alert(
-        'Payment contact unavailable',
-        'The Telegram payment link has not been configured yet. Please try again later.'
-      );
-      return;
+    let telegramUrl = paymentContact?.telegramUrl;
+    try {
+      const latest = await getPaymentContact();
+      setPaymentContact(latest);
+      telegramUrl = latest?.telegramUrl;
+    } catch {
+      // Use last fetched contact if the refresh fails
     }
-
     setOpeningTelegram(true);
     try {
-      const supported = await Linking.canOpenURL(telegramUrl);
-      if (!supported) throw new Error('Telegram link cannot be opened on this device.');
+      const placed = await placeSubscriptionOrder(user.phone, plan.id);
+      setPendingOrder(placed.order);
+    } catch (err) {
+      setOpeningTelegram(false);
+      Alert.alert('Could not place the order', err.message || 'Please try again.');
+      return;
+    }
+    try {
+      if (!telegramUrl) {
+        Alert.alert(
+          'Order placed. Awaiting confirmation.',
+          'Your plan is waiting for an admin to confirm it. The Telegram payment link is not set yet.'
+        );
+        return;
+      }
       await Linking.openURL(telegramUrl);
     } catch (err) {
-      Alert.alert('Unable to open Telegram', err.message || 'Please try again later.');
+      Alert.alert(
+        'Order placed. Awaiting confirmation.',
+        err.message || 'Telegram did not open. An admin can still confirm this order after payment.'
+      );
     } finally {
       setOpeningTelegram(false);
     }
@@ -132,7 +165,7 @@ export default function PlansScreen({ navigation }) {
       <Screen>
         <View style={styles.center}>
           <Text style={styles.loadingText}>No plans available right now.</Text>
-          <TouchableOpacity onPress={loadPlans} style={styles.retryBtn}>
+          <TouchableOpacity onPress={() => loadPlans()} style={styles.retryBtn}>
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -150,7 +183,18 @@ export default function PlansScreen({ navigation }) {
         subtitle="Pay on Telegram. Your access starts after confirmation."
       />
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={() => loadPlans({ silent: true })}
+            tintColor={colors.purpleBright}
+            colors={[colors.purple]}
+          />
+        }
+      >
         <SectionTitle label="PLANS" title="Select a duration" />
         {plans.map(p => {
           const isSelected = selected === p.id;
@@ -196,6 +240,15 @@ export default function PlansScreen({ navigation }) {
           );
         })}
 
+        {pendingOrder ? (
+          <View style={styles.pendingCard}>
+            <Text style={styles.pendingTitle}>Order placed. Awaiting confirmation.</Text>
+            <Text style={styles.pendingText}>
+              {pendingOrder.planLabel} · {pendingOrder.priceDisplay}. Auto-accept stays off until an admin confirms this order.
+            </Text>
+          </View>
+        ) : null}
+
         <SectionTitle label="YOUR SELECTION" title="Plan summary" />
         <View style={styles.summary}>
           <Text style={styles.summaryTitle}>Order Summary</Text>
@@ -240,7 +293,8 @@ export default function PlansScreen({ navigation }) {
         {!!paymentContact?.imageUrl && (
           <View style={styles.paymentImageCard}>
             <Image
-              source={{ uri: paymentContact.imageUrl }}
+              key={paymentContact.imageUrl}
+              source={{ uri: paymentContact.imageUrl, cache: 'reload' }}
               style={styles.paymentImage}
               resizeMode="contain"
               accessibilityLabel="Payment information"
@@ -304,6 +358,14 @@ const styles = StyleSheet.create({
     minHeight: 58,
   },
   payBtnText: { color: colors.background, fontSize: 16, fontWeight: '800' },
+  pendingCard: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderRadius: 22,
+    padding: 16,
+    gap: 6,
+  },
+  pendingTitle: { color: colors.onGreen, fontSize: 15, fontWeight: '800' },
+  pendingText: { color: colors.icyDim, fontSize: 13, lineHeight: 18 },
   telegramNote: {
     backgroundColor: colors.surfaceCard, borderRadius: 22, padding: 16, gap: 5,
   },
