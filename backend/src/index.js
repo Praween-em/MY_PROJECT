@@ -27,6 +27,8 @@ const { ping } = require('./config/db');
 
 const app = express();
 
+// Railway's proxy sits in front of the process. One hop keeps login limits per client.
+app.set('trust proxy', 1);
 app.use(cors({ origin: '*' }));
 
 app.use(express.json({
@@ -68,6 +70,12 @@ app.get('/health', async (_req, res) => {
     db: dbOk,
     ts: new Date().toISOString(),
   });
+});
+
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  if (res.headersSent) return;
+  res.status(500).json({ message: 'Request failed' });
 });
 
 let started = false;

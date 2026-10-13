@@ -84,6 +84,7 @@ public class EngineKeepAlive extends Service {
     if (AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled()) {
       promoteForeground();
       ensureStarted(this);
+      WatchdogAlarm.schedule(this);
     }
     super.onTaskRemoved(rootIntent);
   }

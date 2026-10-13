@@ -2,9 +2,12 @@ package com.ridio.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
 
+import java.io.File;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -21,6 +24,12 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class AutoClickerConfig {
 
   private static final String PREFS = "superridex_race";
+  private static final String KEY_CONFIG_REVISION = "config_revision";
+  private static final String KEY_MONITORED_PACKAGES = "monitored_packages";
+  private static final String KEY_ENTITLEMENT_KNOWN = "entitlement_known";
+  private static final String KEY_ENTITLEMENT_ACTIVE = "entitlement_active";
+  private static final String KEY_ENTITLEMENT_DEVICE_ALLOWED = "entitlement_device_allowed";
+  private static final String KEY_ENTITLEMENT_END_MS = "entitlement_end_ms";
 
   /** Mode 0 = price filter; else = distance filter (MeClicker). */
   public static final int MODE_PRICE = 0;
@@ -35,11 +44,21 @@ public final class AutoClickerConfig {
    */
   private static final AtomicBoolean continuousForegroundTap = new AtomicBoolean(false);
   private static final AtomicInteger minPrice = new AtomicInteger(0);
+  private static final AtomicInteger maxFare = new AtomicInteger(0);
   private static final AtomicInteger delayMs = new AtomicInteger(0);
   private static final AtomicInteger filterMode = new AtomicInteger(MODE_PRICE);
+  private static final AtomicReference<Float> minPickup = new AtomicReference<>(0f);
   private static final AtomicReference<Float> maxPickup = new AtomicReference<>(0f);
   private static final AtomicReference<Float> maxDrop = new AtomicReference<>(0f);
   private static final AtomicLong lastClickAt = new AtomicLong(0);
+  private static final AtomicInteger acceptedCount = new AtomicInteger(0);
+  private static final AtomicInteger lastLatencyMs = new AtomicInteger(-1);
+  private static final AtomicInteger acceptedDay = new AtomicInteger(0);
+  private static final AtomicLong lastAcceptRecordUptime = new AtomicLong(0);
+  private static final AtomicBoolean entitlementKnown = new AtomicBoolean(false);
+  private static final AtomicBoolean entitlementActive = new AtomicBoolean(true);
+  private static final AtomicBoolean entitlementDeviceAllowed = new AtomicBoolean(true);
+  private static final AtomicLong entitlementEndMs = new AtomicLong(0L);
   private static final Set<String> monitoredPackages = Collections.synchronizedSet(new HashSet<>());
   private static final Map<String, int[]> cachedTapByPackage =
       Collections.synchronizedMap(new HashMap<>());
@@ -64,10 +83,15 @@ public final class AutoClickerConfig {
 
   private AutoClickerConfig() {}
 
+  @SuppressWarnings("deprecation")
+  private static int prefsMode() {
+    return Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS;
+  }
+
   public static void init(Context context) {
     if (context == null) return;
     appContext = context.getApplicationContext();
-    prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    prefs = appContext.getSharedPreferences(PREFS, prefsMode());
     reloadFromPrefs();
     // Persist defaults on first run so a11y/NLS/JS share the same prefs file
     if (!prefs.contains("enabled") || !prefs.contains("nuclear_mode")
@@ -80,16 +104,33 @@ public final class AutoClickerConfig {
           .putInt("delay_ms", delayMs.get())
           .apply();
     }
+    // A first install is recorded as known and inactive.
+    // An older install stays off until the app receives a server snapshot.
+    if (!prefs.contains(KEY_ENTITLEMENT_KNOWN) && !enabled.get() && !enabledFlagExists()) {
+      entitlementKnown.set(true);
+      entitlementActive.set(false);
+      prefs.edit()
+          .putBoolean(KEY_ENTITLEMENT_KNOWN, true)
+          .putBoolean(KEY_ENTITLEMENT_ACTIVE, false)
+          .commit();
+    }
   }
 
   /** Re-read disk prefs into memory (NLS/a11y can start before JS Module). */
   public static void reloadFromPrefs() {
     SharedPreferences p = prefs;
     if (p == null && appContext != null) {
-      prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+      prefs = appContext.getSharedPreferences(PREFS, prefsMode());
       p = prefs;
     }
     if (p == null) return;
+    Set<String> persistedPackages = p.getStringSet(KEY_MONITORED_PACKAGES, null);
+    if (persistedPackages != null && !persistedPackages.isEmpty()) {
+      synchronized (monitoredPackages) {
+        monitoredPackages.clear();
+        monitoredPackages.addAll(persistedPackages);
+      }
+    }
     for (String pkg : monitoredPackages) {
       int x = p.getInt("tap_x_" + pkg, -1);
       int y = p.getInt("tap_y_" + pkg, -1);
@@ -103,13 +144,20 @@ public final class AutoClickerConfig {
       }
     }
     filterMode.set(p.getInt("filter_mode", MODE_PRICE));
+    minPickup.set(p.getFloat("min_pickup", 0f));
     maxPickup.set(p.getFloat("max_pickup", 0f));
     maxDrop.set(p.getFloat("max_drop", 0f));
+    maxFare.set(Math.max(0, p.getInt("max_fare", 0)));
     continuousForegroundTap.set(false); // HARD OFF — ignore stale pref
     minPrice.set(Math.max(0, p.getInt("min_price", 0)));
     nuclearMode.set(true);
-    enabled.set(p.getBoolean("enabled", false));
+    enabled.set(p.getBoolean("enabled", false) || enabledFlagExists());
     delayMs.set(0);
+    loadAcceptStats(p);
+    entitlementKnown.set(p.getBoolean(KEY_ENTITLEMENT_KNOWN, false));
+    entitlementActive.set(p.getBoolean(KEY_ENTITLEMENT_ACTIVE, true));
+    entitlementDeviceAllowed.set(p.getBoolean(KEY_ENTITLEMENT_DEVICE_ALLOWED, true));
+    entitlementEndMs.set(p.getLong(KEY_ENTITLEMENT_END_MS, 0L));
   }
 
   /** Ensure prefs loaded before any enable/min check (safe from NLS binder thread). */
@@ -128,18 +176,44 @@ public final class AutoClickerConfig {
 
   public static boolean isEnabled() {
     syncCriticalFromDisk();
-    return enabled.get();
+    return isRequestedEnabled() && isEntitled();
   }
 
   public static void setEnabled(boolean value) {
     enabled.set(value);
     SharedPreferences p = prefs;
     if (p != null) p.edit().putBoolean("enabled", value).commit(); // commit — a11y must see it now
+    writeEnabledFlag(value);
   }
 
   /** In-memory only read — does not re-hit disk (safe after setEnabled / broadcast). */
   public static boolean peekEnabled() {
-    return enabled.get();
+    return isRequestedEnabled() && isEntitled();
+  }
+
+  /** User intent, independent from permission/entitlement gates. */
+  public static boolean isRequestedEnabled() {
+    return enabled.get() || enabledFlagExists();
+  }
+
+  /**
+   * The engine stays off until the server has confirmed this install's plan.
+   */
+  public static boolean isEntitled() {
+    if (!entitlementKnown.get()) return false;
+    if (!entitlementActive.get() || !entitlementDeviceAllowed.get()) return false;
+    long end = entitlementEndMs.get();
+    return end > 0L && System.currentTimeMillis() < end;
+  }
+
+  public static String entitlementBlockReason() {
+    if (!entitlementKnown.get()) return "SUBSCRIPTION_REQUIRED";
+    if (!entitlementDeviceAllowed.get()) return "DEVICE_NOT_ALLOWED";
+    if (!entitlementActive.get()) return "SUBSCRIPTION_REQUIRED";
+    long end = entitlementEndMs.get();
+    if (end <= 0L) return "SUBSCRIPTION_REQUIRED";
+    if (System.currentTimeMillis() >= end) return "SUBSCRIPTION_EXPIRED";
+    return "";
   }
 
   public static boolean peekNuclearMode() {
@@ -156,10 +230,11 @@ public final class AutoClickerConfig {
     if (p != null) {
       p.edit().putBoolean("enabled", value).commit();
     } else if (appContext != null) {
-      appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      appContext.getSharedPreferences(PREFS, prefsMode())
           .edit().putBoolean("enabled", value).commit();
-      prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+      prefs = appContext.getSharedPreferences(PREFS, prefsMode());
     }
+    writeEnabledFlag(value);
   }
 
   public static void applyNuclearFromBroadcast(boolean value) {
@@ -190,18 +265,36 @@ public final class AutoClickerConfig {
     if (now < broadcastProtectUntilMs) return;
     if (now - lastDiskSyncUptimeMs < 400L) return;
     lastDiskSyncUptimeMs = now;
-    enabled.set(p.getBoolean("enabled", false));
+    enabled.set(p.getBoolean("enabled", false) || enabledFlagExists());
     nuclearMode.set(true);
     minPrice.set(Math.max(0, p.getInt("min_price", 0)));
+    maxFare.set(Math.max(0, p.getInt("max_fare", 0)));
+    minPickup.set(p.getFloat("min_pickup", 0f));
     maxPickup.set(p.getFloat("max_pickup", 0f));
+    maxDrop.set(p.getFloat("max_drop", maxDrop.get()));
+    entitlementKnown.set(p.getBoolean(KEY_ENTITLEMENT_KNOWN, entitlementKnown.get()));
+    entitlementActive.set(p.getBoolean(KEY_ENTITLEMENT_ACTIVE, entitlementActive.get()));
+    entitlementDeviceAllowed.set(p.getBoolean(KEY_ENTITLEMENT_DEVICE_ALLOWED, entitlementDeviceAllowed.get()));
+    entitlementEndMs.set(p.getLong(KEY_ENTITLEMENT_END_MS, entitlementEndMs.get()));
+    loadAcceptStats(p);
   }
 
-  public static void applyFiltersFromBroadcast(int minFare, float pickupKm) {
+  public static void applyFiltersFromBroadcast(
+      int minFare, int nextMaxFare, float nextMinPickup, float pickupKm, float nextMaxDrop) {
     minPrice.set(Math.max(0, minFare));
+    maxFare.set(Math.max(0, nextMaxFare));
+    minPickup.set(Math.max(0f, nextMinPickup));
     maxPickup.set(Math.max(0f, pickupKm));
+    maxDrop.set(Math.max(0f, nextMaxDrop));
     SharedPreferences p = prefs;
     if (p != null) {
-      p.edit().putInt("min_price", minPrice.get()).putFloat("max_pickup", maxPickup.get()).commit();
+      p.edit()
+          .putInt("min_price", minPrice.get())
+          .putInt("max_fare", maxFare.get())
+          .putFloat("min_pickup", minPickup.get())
+          .putFloat("max_pickup", maxPickup.get())
+          .putFloat("max_drop", maxDrop.get())
+          .commit();
     }
     broadcastProtectUntilMs = android.os.SystemClock.uptimeMillis() + 5000L;
     lastDiskSyncUptimeMs = 0L;
@@ -237,6 +330,21 @@ public final class AutoClickerConfig {
   public static int getMinPrice() {
     syncCriticalFromDisk();
     return Math.max(0, minPrice.get());
+  }
+
+  public static int getMaxFare() {
+    syncCriticalFromDisk();
+    return Math.max(0, maxFare.get());
+  }
+
+  public static float getMinPickup() {
+    syncCriticalFromDisk();
+    return Math.max(0f, minPickup.get());
+  }
+
+  public static boolean hasOfferFilters() {
+    return getMinPrice() > 0 || getMaxFare() > 0
+        || getMinPickup() > 0f || getMaxPickup() > 0f || getMaxDrop() > 0f;
   }
 
   public static void setMinPrice(int value) {
@@ -358,11 +466,102 @@ public final class AutoClickerConfig {
         monitoredPackages.addAll(packages);
       }
     }
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit().putStringSet(KEY_MONITORED_PACKAGES, new HashSet<>(getMonitoredPackages())).commit();
+    }
   }
 
   public static Set<String> getMonitoredPackages() {
     synchronized (monitoredPackages) {
       return new HashSet<>(monitoredPackages);
+    }
+  }
+
+  /**
+   * Monotonic configuration version shared by the UI and the isolated engine
+   * process. A single version lets the service reject partial/stale updates.
+   */
+  public static long getConfigRevision() {
+    SharedPreferences p = prefs;
+    return p != null ? p.getLong(KEY_CONFIG_REVISION, 0L) : 0L;
+  }
+
+  /**
+   * Atomically apply every engine setting. Do not replace this with individual
+   * setters: the Accessibility process can observe those writes between calls.
+   */
+  public static synchronized long applyAutomationConfig(
+      boolean nextEnabled,
+      int nextMinPrice,
+      int nextMaxFare,
+      float nextMinPickup,
+      float nextMaxPickup,
+      float nextMaxDrop,
+      Set<String> nextPackages) {
+    if (prefs == null && appContext != null) init(appContext);
+    SharedPreferences p = prefs;
+    int fare = Math.max(0, nextMinPrice);
+    int fareCap = Math.max(0, nextMaxFare);
+    float pickupMin = Math.max(0f, nextMinPickup);
+    float pickup = Math.max(0f, nextMaxPickup);
+    float dropCap = Math.max(0f, nextMaxDrop);
+    Set<String> packages = new HashSet<>();
+    if (nextPackages != null) packages.addAll(nextPackages);
+    if (packages.isEmpty()) {
+      packages.add(PKG_OLA_DRIVER);
+      packages.add(PKG_RAPIDO_CAPTAIN);
+      packages.add(PKG_RAPIDO_CAPTAIN_LEGACY);
+    }
+    long revision = p != null ? p.getLong(KEY_CONFIG_REVISION, 0L) + 1L : 1L;
+
+    enabled.set(nextEnabled);
+    nuclearMode.set(true);
+    delayMs.set(0);
+    minPrice.set(fare);
+    maxFare.set(fareCap);
+    minPickup.set(pickupMin);
+    maxPickup.set(pickup);
+    maxDrop.set(dropCap);
+    synchronized (monitoredPackages) {
+      monitoredPackages.clear();
+      monitoredPackages.addAll(packages);
+    }
+    if (p != null) {
+      p.edit()
+          .putBoolean("enabled", nextEnabled)
+          .putBoolean("nuclear_mode", true)
+          .putInt("delay_ms", 0)
+          .putInt("min_price", fare)
+          .putInt("max_fare", fareCap)
+          .putFloat("min_pickup", pickupMin)
+          .putFloat("max_pickup", pickup)
+          .putFloat("max_drop", dropCap)
+          .putStringSet(KEY_MONITORED_PACKAGES, new HashSet<>(packages))
+          .putLong(KEY_CONFIG_REVISION, revision)
+          .commit();
+    }
+    writeEnabledFlag(nextEnabled);
+    markBroadcastApplied();
+    return revision;
+  }
+
+  /** Persist server-confirmed entitlement for the isolated engine process. */
+  public static synchronized void applyEntitlementSnapshot(
+      boolean active, boolean deviceAllowed, long subscriptionEndEpochMs) {
+    if (prefs == null && appContext != null) init(appContext);
+    entitlementKnown.set(true);
+    entitlementActive.set(active);
+    entitlementDeviceAllowed.set(deviceAllowed);
+    entitlementEndMs.set(Math.max(0L, subscriptionEndEpochMs));
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit()
+          .putBoolean(KEY_ENTITLEMENT_KNOWN, true)
+          .putBoolean(KEY_ENTITLEMENT_ACTIVE, active)
+          .putBoolean(KEY_ENTITLEMENT_DEVICE_ALLOWED, deviceAllowed)
+          .putLong(KEY_ENTITLEMENT_END_MS, Math.max(0L, subscriptionEndEpochMs))
+          .commit();
     }
   }
 
@@ -458,5 +657,119 @@ public final class AutoClickerConfig {
       return false;
     }
     return lastClickAt.compareAndSet(last, now);
+  }
+
+  /** Today's accepted-ride count (survives UI kill; engine writes, Home reads). */
+  public static int getAcceptedCount() {
+    syncAcceptDay();
+    return Math.max(0, acceptedCount.get());
+  }
+
+  public static int getLastLatencyMs() {
+    return lastLatencyMs.get();
+  }
+
+  /**
+   * Count a confirmed Accept once per race. Debounces restrikes (~600ms) so
+   * ride 2/3 still increment while VERIFY retries do not.
+   */
+  public static int recordAccept(int latencyMs) {
+    syncAcceptDay();
+    long now = SystemClock.uptimeMillis();
+    long prev = lastAcceptRecordUptime.get();
+    if (prev > 0 && now - prev < 600L) {
+      if (latencyMs >= 0 && (lastLatencyMs.get() < 0 || latencyMs < lastLatencyMs.get())) {
+        lastLatencyMs.set(latencyMs);
+        persistAcceptStats();
+      }
+      return acceptedCount.get();
+    }
+    if (!lastAcceptRecordUptime.compareAndSet(prev, now)) {
+      return acceptedCount.get();
+    }
+    int n = acceptedCount.incrementAndGet();
+    if (latencyMs >= 0) lastLatencyMs.set(latencyMs);
+    persistAcceptStats();
+    return n;
+  }
+
+  private static int todayKey() {
+    Calendar c = Calendar.getInstance();
+    return c.get(Calendar.YEAR) * 10000
+        + (c.get(Calendar.MONTH) + 1) * 100
+        + c.get(Calendar.DAY_OF_MONTH);
+  }
+
+  private static void syncAcceptDay() {
+    int today = todayKey();
+    if (acceptedDay.get() == today) return;
+    acceptedDay.set(today);
+    acceptedCount.set(0);
+    persistAcceptStats();
+  }
+
+  private static void loadAcceptStats(SharedPreferences p) {
+    if (p == null) return;
+    int today = todayKey();
+    int day = p.getInt("accept_day", 0);
+    acceptedDay.set(day);
+    if (day != today) {
+      acceptedCount.set(0);
+      lastLatencyMs.set(-1);
+      acceptedDay.set(today);
+      persistAcceptStats();
+      return;
+    }
+    acceptedCount.set(Math.max(0, p.getInt("accept_count", 0)));
+    lastLatencyMs.set(p.getInt("last_latency_ms", -1));
+  }
+
+  private static void persistAcceptStats() {
+    SharedPreferences p = prefs;
+    if (p == null) return;
+    p.edit()
+        .putInt("accept_day", acceptedDay.get())
+        .putInt("accept_count", acceptedCount.get())
+        .putInt("last_latency_ms", lastLatencyMs.get())
+        .commit();
+  }
+
+  /** Disk flag so {@code :engine} still sees ON after a Recents swipe / process reuse. */
+  private static File enabledFlagFile() {
+    Context ctx = appContext;
+    if (ctx == null) return null;
+    return new File(ctx.getFilesDir(), "engine_on");
+  }
+
+  private static volatile boolean enabledFlagValue = false;
+  private static volatile long enabledFlagAtMs = 0;
+
+  private static boolean enabledFlagExists() {
+    long now = SystemClock.uptimeMillis();
+    if (enabledFlagAtMs > 0 && now - enabledFlagAtMs < 400L) return enabledFlagValue;
+    File f = enabledFlagFile();
+    boolean v = f != null && f.exists();
+    enabledFlagValue = v;
+    enabledFlagAtMs = now;
+    return v;
+  }
+
+  private static void writeEnabledFlag(boolean on) {
+    File f = enabledFlagFile();
+    enabledFlagValue = on;
+    enabledFlagAtMs = SystemClock.uptimeMillis();
+    if (f == null) return;
+    try {
+      if (on) {
+        if (!f.exists()) {
+          //noinspection ResultOfMethodCallIgnored
+          f.createNewFile();
+        }
+      } else if (f.exists()) {
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
+      }
+    } catch (Exception ignored) {
+    }
   }
 }

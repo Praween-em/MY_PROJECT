@@ -19,9 +19,10 @@ const JAVA_FILES = [
     'EngineKeepAlive.java',
     'RecentsGuard.java',
     'RideAlertListener.java',
-  'ServiceHealth.java',
-  'ShizukuInput.java',
-  'TapHighlightOverlay.java',
+    'ServiceHealth.java',
+    'ShizukuInput.java',
+    'TapHighlightOverlay.java',
+    'WatchdogAlarm.java',
 ];
 
 const SHIZUKU_PKG = 'moe.shizuku.privileged.api';
@@ -56,9 +57,7 @@ const NETWORK_SECURITY_CONFIG_XML = `<?xml version="1.0" encoding="utf-8"?>
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">partnerapi.jio.com</domain>
-        <domain includeSubdomains="true">jio.com</domain>
         <domain includeSubdomains="true">control.msg91.com</domain>
-        <domain includeSubdomains="true">msg91.com</domain>
         <domain includeSubdomains="true">80.in.safr.sekuramobile.com</domain>
         <domain includeSubdomains="true">safr.sekuramobile.com</domain>
     </domain-config>
@@ -298,6 +297,27 @@ function withAutoClickerManifest(config) {
       ];
     }
 
+    const watchdog = app.receiver.find((r) => r.$?.['android:name'] === '.WatchdogAlarm');
+    if (!watchdog) {
+      app.receiver.push({
+        $: {
+          'android:name': '.WatchdogAlarm',
+          'android:exported': 'false',
+          'android:enabled': 'true',
+          'android:process': ':engine',
+        },
+        'intent-filter': [
+          {
+            action: [{ $: { 'android:name': 'com.ridio.app.WATCHDOG' } }],
+          },
+        ],
+      });
+    } else if (watchdog.$) {
+      watchdog.$['android:process'] = ':engine';
+      watchdog.$['android:exported'] = 'false';
+      watchdog.$['android:enabled'] = 'true';
+    }
+
     app.provider = app.provider ?? [];
     const hasShizuku = app.provider.some(
       (p) => p.$?.['android:name'] === 'rikka.shizuku.ShizukuProvider'
@@ -417,10 +437,9 @@ function patchMainApplication(platformRoot) {
 }
 
 function copyBrandIcons(projectRoot, platformRoot) {
-  const srcRoot = path.join(projectRoot, 'assets', 'AppIcons', 'android');
   const iconPng = path.join(projectRoot, 'assets', 'app_icon.png');
   const resRoot = path.join(platformRoot, 'app', 'src', 'main', 'res');
-  if (!fs.existsSync(srcRoot) && !fs.existsSync(iconPng)) {
+  if (!fs.existsSync(iconPng)) {
     console.warn('[withAutoClicker] missing app icon — skip icon sync');
     return;
   }
@@ -444,18 +463,12 @@ function copyBrandIcons(projectRoot, platformRoot) {
   }
 
   let copied = 0;
-  const fallbackIcon = fs.existsSync(iconPng) ? iconPng : null;
   for (const density of densities) {
-    const fromDir = path.join(srcRoot, density);
     const toDir = path.join(resRoot, density);
     fs.mkdirSync(toDir, { recursive: true });
-    const launcher = path.join(fromDir, 'ic_launcher.png');
-    const src = fs.existsSync(launcher) ? launcher : fallbackIcon;
-    if (src) {
-      fs.copyFileSync(src, path.join(toDir, 'ic_launcher.png'));
-      fs.copyFileSync(src, path.join(toDir, 'ic_launcher_round.png'));
-      copied += 2;
-    }
+    fs.copyFileSync(iconPng, path.join(toDir, 'ic_launcher.png'));
+    fs.copyFileSync(iconPng, path.join(toDir, 'ic_launcher_round.png'));
+    copied += 2;
   }
 
   const drawableDir = path.join(resRoot, 'drawable');
@@ -471,15 +484,10 @@ function copyBrandIcons(projectRoot, platformRoot) {
 `
   );
 
-  const fgSrc = fs.existsSync(path.join(srcRoot, 'adaptive-foreground.png'))
-    ? path.join(srcRoot, 'adaptive-foreground.png')
-    : fallbackIcon;
-  if (fgSrc) {
-    const toDir = path.join(resRoot, 'mipmap-xxxhdpi');
-    fs.mkdirSync(toDir, { recursive: true });
-    fs.copyFileSync(fgSrc, path.join(toDir, 'ic_launcher_foreground.png'));
-    copied++;
-  }
+  const toFg = path.join(resRoot, 'mipmap-xxxhdpi');
+  fs.mkdirSync(toFg, { recursive: true });
+  fs.copyFileSync(iconPng, path.join(toFg, 'ic_launcher_foreground.png'));
+  copied++;
 
   const anydpiTo = path.join(resRoot, 'mipmap-anydpi-v26');
   fs.mkdirSync(anydpiTo, { recursive: true });
@@ -507,28 +515,29 @@ function installBrandSplash(projectRoot, platformRoot) {
   }
 
   const resRoot = path.join(platformRoot, 'app', 'src', 'main', 'res');
-  const densityDirs = [
-    'drawable',
-    'drawable-mdpi',
-    'drawable-hdpi',
-    'drawable-xhdpi',
-    'drawable-xxhdpi',
-    'drawable-xxxhdpi',
-    'drawable-night',
-    'drawable-night-mdpi',
-    'drawable-night-hdpi',
-    'drawable-night-xhdpi',
-    'drawable-night-xxhdpi',
-    'drawable-night-xxxhdpi',
-  ];
+  // One copy each — Expo writes a logo into every density; extra copies only bloat the APK.
+  const densityDirs = ['drawable', 'drawable-night'];
 
   for (const dir of densityDirs) {
     const destDir = path.join(resRoot, dir);
-    if (!fs.existsSync(destDir) && dir !== 'drawable') continue;
     fs.mkdirSync(destDir, { recursive: true });
     const xml = path.join(destDir, 'splashscreen_logo.xml');
     if (fs.existsSync(xml)) fs.unlinkSync(xml);
     fs.copyFileSync(splashSrc, path.join(destDir, 'splashscreen_logo.png'));
+  }
+
+  for (const extra of [
+    'drawable-mdpi', 'drawable-hdpi', 'drawable-xhdpi',
+    'drawable-xxhdpi', 'drawable-xxxhdpi',
+    'drawable-night-mdpi', 'drawable-night-hdpi', 'drawable-night-xhdpi',
+    'drawable-night-xxhdpi', 'drawable-night-xxxhdpi',
+  ]) {
+    const destDir = path.join(resRoot, extra);
+    if (!fs.existsSync(destDir)) continue;
+    for (const name of ['splashscreen_logo.png', 'splashscreen_logo.xml']) {
+      const f = path.join(destDir, name);
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    }
   }
 
   const drawableDir = path.join(resRoot, 'drawable');

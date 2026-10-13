@@ -64,7 +64,7 @@ export default {
       icon: './assets/app_icon.png',
       adaptiveIcon: {
         backgroundColor: '#041109',
-        foregroundImage: './assets/AppIcons/android/adaptive-foreground.png',
+        foregroundImage: './assets/app_icon.png',
       },
       permissions: [
         'android.permission.RECEIVE_BOOT_COMPLETED',

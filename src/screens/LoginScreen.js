@@ -84,6 +84,7 @@ export default function LoginScreen({ navigation }) {
 
     await saveUser({
       phone,
+      sessionToken: reg.sessionToken || null,
       active: !!reg.active,
       referralCode: reg.referralCode || null,
       appliedReferralCode: referralCode.trim() || null,

@@ -27,7 +27,7 @@ router.get('/status', requirePhone, async (req, res) => {
     });
   } catch (err) {
     console.error('referral status error:', err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: 'Could not load referrals' });
   }
 });
 
@@ -78,7 +78,8 @@ router.post('/register', requirePhone, optionalDevice, async (req, res) => {
       maxDevices: updated.maxDevices,
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('referral register error:', err);
+    res.status(500).json({ message: 'Could not register' });
   }
 });
 
@@ -97,7 +98,10 @@ router.post('/apply', requirePhone, async (req, res) => {
     });
   } catch (err) {
     const status = /already applied|Invalid|not found/i.test(err.message) ? 400 : 500;
-    res.status(status).json({ message: err.message });
+    if (status >= 500) console.error('referral apply error:', err);
+    res.status(status).json({
+      message: status === 400 ? err.message : 'Could not apply the referral',
+    });
   }
 });
 

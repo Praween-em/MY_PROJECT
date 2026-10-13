@@ -67,6 +67,7 @@ public class RecentsGuard extends Service {
     AutoClickerConfig.ensureInit(this);
     if (AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled()) {
       EngineKeepAlive.ensureStarted(getApplicationContext());
+      WatchdogAlarm.schedule(getApplicationContext());
       try {
         Intent restart = new Intent(getApplicationContext(), RecentsGuard.class);
         restart.setAction(ACTION_START);

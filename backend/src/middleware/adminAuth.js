@@ -7,8 +7,17 @@ const { authenticateAdmin } = require('../models/admin');
 
 const TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
 
+const DEFAULT_ADMIN_SECRET = 'dev-admin-secret-change-me';
+
 function secret() {
-  return process.env.ADMIN_JWT_SECRET || process.env.ADMIN_SECRET || 'dev-admin-secret-change-me';
+  const value = String(process.env.ADMIN_JWT_SECRET || process.env.ADMIN_SECRET || '').trim();
+  if (!value || value === DEFAULT_ADMIN_SECRET) {
+    const err = new Error('ADMIN_JWT_SECRET must be set to a private value');
+    err.status = 503;
+    err.code = 'ADMIN_SECRET_MISSING';
+    throw err;
+  }
+  return value;
 }
 
 function signAdminToken(admin) {
@@ -24,8 +33,14 @@ function signAdminToken(admin) {
 
 function verifyAdminToken(token) {
   if (!token || !token.includes('.')) return null;
+  let key;
+  try {
+    key = secret();
+  } catch {
+    return null;
+  }
   const [payload, sig] = token.split('.');
-  const expected = crypto.createHmac('sha256', secret()).update(payload).digest('base64url');
+  const expected = crypto.createHmac('sha256', key).update(payload).digest('base64url');
   if (sig.length !== expected.length) return null;
   try {
     if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;

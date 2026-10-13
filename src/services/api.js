@@ -4,6 +4,7 @@
 
 import Constants from 'expo-constants';
 import { getDeviceId, getDeviceLabel } from '../utils/deviceId';
+import { getStoredUser } from '../utils/storage';
 
 function resolveBaseUrl() {
   const fromExtra = Constants.expoConfig?.extra?.apiUrl;
@@ -52,14 +53,13 @@ async function request(method, path, body, token) {
     ? { ...body, deviceId: body.deviceId || deviceId, deviceLabel: body.deviceLabel || deviceLabel }
     : undefined;
 
-  // Always send phone in headers when present (backend auth reads body / Bearer / x-phone)
-  const phone = payload?.phone || body?.phone;
-  if (phone) {
-    const digits = String(phone).replace(/\D/g, '').slice(-10);
-    if (digits.length === 10) {
-      headers['x-phone'] = digits;
-      if (!token) headers.Authorization = `Bearer ${digits}`;
+  try {
+    const stored = await getStoredUser();
+    if (stored?.sessionToken) {
+      headers.Authorization = `Bearer ${stored.sessionToken}`;
     }
+  } catch {
+    // Login is the only call that can proceed without a stored session.
   }
 
   const url = `${BASE_URL}${path}`;
@@ -67,18 +67,23 @@ async function request(method, path, body, token) {
     console.log(`[api] ${method} ${url}`);
   }
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
   let res;
   try {
     res = await fetch(url, {
       method,
       headers,
       body: payload ? JSON.stringify(payload) : undefined,
+      signal: controller.signal,
     });
   } catch (err) {
     throw new ApiError(
       `Cannot reach backend (${BASE_URL}). Check EXPO_PUBLIC_API_URL and rebuild the app.`,
       { status: 0, code: 'NETWORK', data: { cause: err?.message } }
     );
+  } finally {
+    clearTimeout(timer);
   }
 
   const raw = await res.text();

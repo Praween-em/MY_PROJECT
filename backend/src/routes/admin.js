@@ -5,6 +5,14 @@
 const express = require('express');
 const router = express.Router();
 const { loginAdmin, requireAdmin } = require('../middleware/adminAuth');
+const { createRateLimit, clientKey } = require('../middleware/rateLimit');
+const { sendError } = require('../utils/httpError');
+
+const adminLoginLimit = createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  keyFn: (req) => clientKey(req),
+});
 const {
   searchUsers,
   getUserByPhone,
@@ -34,7 +42,7 @@ const {
   setOrderStatus,
 } = require('../models/subscriptionOrders');
 
-router.post('/login', async (req, res) => {
+router.post('/login', adminLoginLimit, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {
@@ -44,8 +52,7 @@ router.post('/login', async (req, res) => {
     if (!result) return res.status(401).json({ message: 'Invalid credentials' });
     res.json({ token: result.token, admin: result.admin });
   } catch (err) {
-    console.error('admin login error:', err);
-    res.status(500).json({ message: err.message });
+    sendError(res, err, 'Admin login failed');
   }
 });
 

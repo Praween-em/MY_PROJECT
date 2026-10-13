@@ -14,7 +14,7 @@ router.get('/', async (_req, res) => {
     res.json(data);
   } catch (err) {
     console.error('GET /socials:', err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: 'Could not load links' });
   }
 });
 

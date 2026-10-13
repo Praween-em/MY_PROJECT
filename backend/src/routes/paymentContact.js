@@ -26,7 +26,7 @@ router.get('/', async (_req, res) => {
     });
   } catch (err) {
     console.error('GET /payment-contact:', err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: 'Could not load payment contact' });
   }
 });
 
@@ -42,7 +42,7 @@ router.get('/image', async (_req, res) => {
     return res.send(image.data);
   } catch (err) {
     console.error('GET /payment-contact/image:', err);
-    return res.status(500).json({ message: err.message });
+    return res.status(500).json({ message: 'Could not load payment image' });
   }
 });
 

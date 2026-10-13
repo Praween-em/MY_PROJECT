@@ -67,6 +67,8 @@ EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3000
 5. Confirm the payment in Telegram.
 6. Open `/admin` → **Pending orders** and confirm that order. Confirming grants the plan. Rejecting leaves the account unchanged.
 
+`008_session_token.sql` adds a login session. The API accepts only that session. A phone number is not a password. Set `ADMIN_JWT_SECRET` to a private value before opening the admin panel. Run `npm run migrate` on Railway, then have each driver log in again on the new build.
+
 ## Admin device-change playbook
 
 1. Open `/admin` → search phone  

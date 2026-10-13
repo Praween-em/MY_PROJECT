@@ -22,6 +22,7 @@ import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableArray;
+import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
@@ -37,12 +38,15 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
   public static final String ACTION_RIDE_ACCEPTED = "com.ridio.app.ACTION_RIDE_ACCEPTED";
   /** UI → `:engine` Auto-accept / nuclear toggle (sInstance is null in UI process). */
   public static final String ACTION_CONFIG_CHANGED = "com.ridio.app.ACTION_CONFIG_CHANGED";
+  /** Native runtime updates sent from the isolated engine process to the UI process. */
+  public static final String ACTION_RUNTIME_STATUS = "com.ridio.app.ACTION_RUNTIME_STATUS";
   /** Not in all SDK stubs — use string action (API 33+) */
   private static final String ACTION_ACCESSIBILITY_DETAILS_SETTINGS =
       "android.settings.ACCESSIBILITY_DETAILS_SETTINGS";
   private static final int SHIZUKU_PERMISSION_CODE = 7143;
   private static ReactApplicationContext reactContext;
   private BroadcastReceiver rideAcceptedBridge;
+  private BroadcastReceiver runtimeStatusBridge;
   private Promise pendingShizukuPromise;
   private final Shizuku.OnRequestPermissionResultListener shizukuPermissionListener =
       (requestCode, grantResult) -> {
@@ -59,11 +63,33 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     reactContext = context;
     AutoClickerConfig.init(context);
     registerRideAcceptedBridge(context);
+    registerRuntimeStatusBridge(context);
     try {
       Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
       ShizukuInput.attach(context);
     } catch (Throwable t) {
       android.util.Log.w(MODULE_NAME, "Shizuku init: " + t.getMessage());
+    }
+  }
+
+  private void registerRuntimeStatusBridge(ReactApplicationContext context) {
+    if (runtimeStatusBridge != null) return;
+    runtimeStatusBridge = new BroadcastReceiver() {
+      @Override
+      public void onReceive(Context ctx, Intent intent) {
+        if (intent == null || reactContext == null || !reactContext.hasActiveReactInstance()) return;
+        emitRuntimeStatusToJs(buildRuntimeStatus(ctx, intent.getStringExtra("reason")));
+      }
+    };
+    try {
+      IntentFilter filter = new IntentFilter(ACTION_RUNTIME_STATUS);
+      if (Build.VERSION.SDK_INT >= 33) {
+        context.registerReceiver(runtimeStatusBridge, filter, Context.RECEIVER_NOT_EXPORTED);
+      } else {
+        context.registerReceiver(runtimeStatusBridge, filter);
+      }
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "runtime bridge register failed: " + e.getMessage());
     }
   }
 
@@ -81,7 +107,8 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
             intent.getIntExtra("price", 0),
             intent.getStringExtra("label"),
             intent.getIntExtra("latencyMs", -1),
-            intent.getStringExtra("mode")
+            intent.getStringExtra("mode"),
+            intent.getIntExtra("acceptedCount", -1)
         );
       }
     };
@@ -321,17 +348,121 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       if (enabled) {
         EngineKeepAlive.ensureStarted(app);
         RecentsGuard.ensureStarted(app);
+        WatchdogAlarm.schedule(app);
       } else {
+        WatchdogAlarm.cancel(app);
         EngineKeepAlive.stop(app);
         RecentsGuard.stop(app);
       }
       if (prev != enabled) {
         android.util.Log.i("AutoClickerModule", "setServiceEnabled " + prev + "→" + enabled);
       }
-      promise.resolve(enabled);
+      emitRuntimeStatus(getReactApplicationContext(), enabled ? "legacy-enable" : "legacy-disable");
+      promise.resolve(buildRuntimeStatus(getReactApplicationContext(), null));
     } catch (Throwable t) {
-      promise.resolve(enabled);
+      WritableMap status = buildRuntimeStatus(getReactApplicationContext(), "legacy-config-error");
+      status.putString("state", "ERROR");
+      status.putString("blockingReason", "CONFIG_ERROR");
+      status.putString("lastError", t.getMessage() != null ? t.getMessage() : "Unable to change service state");
+      promise.resolve(status);
     }
+  }
+
+  /**
+   * The authoritative bridge contract. React passes a complete desired config;
+   * native persists and applies it as one revision before waking the engine.
+   */
+  @ReactMethod
+  public void applyAutomationConfig(ReadableMap config, Promise promise) {
+    Context ctx = getReactApplicationContext();
+    try {
+      if (config == null) throw new IllegalArgumentException("Configuration is required");
+      boolean nextEnabled = config.hasKey("enabled") && !config.isNull("enabled")
+          && config.getBoolean("enabled");
+      int fare = config.hasKey("minPrice") && !config.isNull("minPrice")
+          ? Math.max(0, (int) config.getDouble("minPrice")) : 0;
+      int maxFare = config.hasKey("maxPrice") && !config.isNull("maxPrice")
+          ? Math.max(0, (int) config.getDouble("maxPrice")) : 0;
+      float minPickup = config.hasKey("minPickup") && !config.isNull("minPickup")
+          ? Math.max(0f, (float) config.getDouble("minPickup")) : 0f;
+      float pickup = config.hasKey("maxPickup") && !config.isNull("maxPickup")
+          ? Math.max(0f, (float) config.getDouble("maxPickup")) : 0f;
+      float maxDrop = config.hasKey("maxDrop") && !config.isNull("maxDrop")
+          ? Math.max(0f, (float) config.getDouble("maxDrop")) : 0f;
+      Set<String> packages = new HashSet<>();
+      if (config.hasKey("monitoredPackages") && !config.isNull("monitoredPackages")) {
+        ReadableArray values = config.getArray("monitoredPackages");
+        if (values != null) {
+          for (int i = 0; i < values.size(); i++) {
+            String pkg = values.getString(i);
+            if (pkg != null && !pkg.trim().isEmpty()) packages.add(pkg.trim());
+          }
+        }
+      }
+      AutoClickerConfig.init(ctx);
+      applyEntitlementFromConfig(config);
+      long revision = AutoClickerConfig.applyAutomationConfig(
+          nextEnabled, fare, maxFare, minPickup, pickup, maxDrop, packages);
+      broadcastConfigChanged(ctx);
+      AutoClickerService.onConfigChanged();
+      if (nextEnabled) {
+        EngineKeepAlive.ensureStarted(ctx);
+        RecentsGuard.ensureStarted(ctx);
+        WatchdogAlarm.schedule(ctx);
+      } else {
+        WatchdogAlarm.cancel(ctx);
+        EngineKeepAlive.stop(ctx);
+        RecentsGuard.stop(ctx);
+      }
+      emitRuntimeStatus(ctx, "config-applied:" + revision);
+      promise.resolve(buildRuntimeStatus(ctx, null));
+    } catch (Throwable t) {
+      WritableMap result = buildRuntimeStatus(ctx, "config-error");
+      result.putString("state", "ERROR");
+      result.putString("blockingReason", "CONFIG_ERROR");
+      result.putString("lastError", t.getMessage() != null ? t.getMessage() : "Configuration failed");
+      promise.resolve(result);
+    }
+  }
+
+  @ReactMethod
+  public void getAutomationStatus(Promise promise) {
+    promise.resolve(buildRuntimeStatus(getReactApplicationContext(), null));
+  }
+
+  /** Refresh the native entitlement cache after login/payment/server refresh. */
+  @ReactMethod
+  public void updateEntitlement(ReadableMap entitlement, Promise promise) {
+    try {
+      if (entitlement == null) throw new IllegalArgumentException("Entitlement is required");
+      boolean active = entitlement.hasKey("active") && !entitlement.isNull("active")
+          && entitlement.getBoolean("active");
+      boolean deviceAllowed = !entitlement.hasKey("deviceAllowed") || entitlement.isNull("deviceAllowed")
+          || entitlement.getBoolean("deviceAllowed");
+      long endMs = entitlement.hasKey("subscriptionEndMs") && !entitlement.isNull("subscriptionEndMs")
+          ? Math.max(0L, (long) entitlement.getDouble("subscriptionEndMs")) : 0L;
+      AutoClickerConfig.applyEntitlementSnapshot(active, deviceAllowed, endMs);
+      AutoClickerService.onConfigChanged();
+      emitRuntimeStatus(getReactApplicationContext(), "entitlement-updated");
+      promise.resolve(buildRuntimeStatus(getReactApplicationContext(), null));
+    } catch (Throwable t) {
+      WritableMap status = buildRuntimeStatus(getReactApplicationContext(), "entitlement-error");
+      status.putString("lastError", t.getMessage() != null ? t.getMessage() : "Entitlement update failed");
+      promise.resolve(status);
+    }
+  }
+
+  private static void applyEntitlementFromConfig(ReadableMap config) {
+    if (!config.hasKey("entitlement") || config.isNull("entitlement")) return;
+    ReadableMap entitlement = config.getMap("entitlement");
+    if (entitlement == null) return;
+    boolean active = entitlement.hasKey("active") && !entitlement.isNull("active")
+        && entitlement.getBoolean("active");
+    boolean deviceAllowed = !entitlement.hasKey("deviceAllowed") || entitlement.isNull("deviceAllowed")
+        || entitlement.getBoolean("deviceAllowed");
+    long endMs = entitlement.hasKey("subscriptionEndMs") && !entitlement.isNull("subscriptionEndMs")
+        ? Math.max(0L, (long) entitlement.getDouble("subscriptionEndMs")) : 0L;
+    AutoClickerConfig.applyEntitlementSnapshot(active, deviceAllowed, endMs);
   }
 
   /** Push master/nuclear into `:engine` — required because a11y sInstance lives there. */
@@ -343,7 +474,10 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       i.putExtra("enabled", AutoClickerConfig.peekEnabled());
       i.putExtra("nuclear_mode", AutoClickerConfig.peekNuclearMode());
       i.putExtra("min_price", AutoClickerConfig.getMinPrice());
+      i.putExtra("max_fare", AutoClickerConfig.getMaxFare());
+      i.putExtra("min_pickup", AutoClickerConfig.getMinPickup());
       i.putExtra("max_pickup", AutoClickerConfig.getMaxPickup());
+      i.putExtra("max_drop", AutoClickerConfig.getMaxDrop());
       ctx.sendBroadcast(i);
       android.util.Log.i(MODULE_NAME, "CONFIG_BROADCAST enabled="
           + AutoClickerConfig.peekEnabled()
@@ -425,8 +559,13 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       map.putBoolean("nuclearMode", AutoClickerConfig.isNuclearMode());
       map.putBoolean("continuousForegroundTap", AutoClickerConfig.isContinuousForegroundTap());
       map.putInt("minPrice", AutoClickerConfig.getMinPrice());
+      map.putInt("maxPrice", AutoClickerConfig.getMaxFare());
+      map.putDouble("minPickup", AutoClickerConfig.getMinPickup());
       map.putDouble("maxPickup", AutoClickerConfig.getMaxPickup());
+      map.putDouble("maxDrop", AutoClickerConfig.getMaxDrop());
       map.putInt("delayMs", AutoClickerConfig.getDelayMs());
+      map.putInt("acceptedCount", AutoClickerConfig.getAcceptedCount());
+      map.putInt("lastLatencyMs", AutoClickerConfig.getLastLatencyMs());
       broadcastConfigChanged(getReactApplicationContext());
       map.putBoolean("accessibilityEnabled", isOurAccessibilityServiceEnabled(getReactApplicationContext()));
       map.putBoolean(
@@ -513,6 +652,81 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
 
   // ─── Event emission ───────────────────────────────────────────────────────
 
+  /** Broadcast from either process. The UI process turns it into a JS event. */
+  public static void emitRuntimeStatus(Context context, String reason) {
+    if (context == null) return;
+    try {
+      Intent i = new Intent(ACTION_RUNTIME_STATUS);
+      i.setPackage(context.getPackageName());
+      i.putExtra("reason", reason != null ? reason : "status-changed");
+      context.sendBroadcast(i);
+    } catch (Exception e) {
+      android.util.Log.w(MODULE_NAME, "runtime status broadcast failed: " + e.getMessage());
+    }
+  }
+
+  /** The one status model consumed by React; native is its source of truth. */
+  private static WritableMap buildRuntimeStatus(Context context, String reason) {
+    WritableMap map = Arguments.createMap();
+    AutoClickerConfig.ensureInit(context);
+    boolean requested = AutoClickerConfig.isRequestedEnabled();
+    boolean accessibility = isOurAccessibilityServiceEnabled(context);
+    boolean notifications = isOurNotificationListenerEnabled(context);
+    boolean shizuku = ShizukuInput.isReady();
+    boolean batteryOk = false;
+    try {
+      PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+      batteryOk = pm != null && pm.isIgnoringBatteryOptimizations(context.getPackageName());
+    } catch (Exception ignored) {
+    }
+
+    String state = "STOPPED";
+    String blocking = "";
+    if (requested && !AutoClickerConfig.isEntitled()) {
+      state = "BLOCKED";
+      blocking = AutoClickerConfig.entitlementBlockReason();
+    } else if (requested && !accessibility) {
+      state = "BLOCKED";
+      blocking = "ACCESSIBILITY_REQUIRED";
+    } else if (requested) {
+      // Notification access and battery exemption are deliberately DEGRADED,
+      // not blockers: accessibility can still accept offers without them.
+      state = (!notifications || !batteryOk) ? "DEGRADED" : "RUNNING";
+      if (!notifications) blocking = "NOTIFICATION_ACCESS_RECOMMENDED";
+      else if (!batteryOk) blocking = "BATTERY_OPTIMIZATION_RECOMMENDED";
+    }
+
+    map.putString("state", state);
+    map.putString("blockingReason", blocking);
+    map.putString("reason", reason != null ? reason : "");
+    map.putBoolean("requestedEnabled", requested);
+    map.putBoolean("enabled", "RUNNING".equals(state) || "DEGRADED".equals(state));
+    map.putBoolean("accessibilityEnabled", accessibility);
+    map.putBoolean("notificationListenerEnabled", notifications);
+    map.putBoolean("batteryOptimizationOk", batteryOk);
+    map.putBoolean("shizukuReady", shizuku);
+    map.putBoolean("serviceConnected", accessibility);
+    map.putDouble("configRevision", (double) AutoClickerConfig.getConfigRevision());
+    map.putInt("minPrice", AutoClickerConfig.getMinPrice());
+    map.putInt("maxPrice", AutoClickerConfig.getMaxFare());
+    map.putDouble("minPickup", AutoClickerConfig.getMinPickup());
+    map.putDouble("maxPickup", AutoClickerConfig.getMaxPickup());
+    map.putDouble("maxDrop", AutoClickerConfig.getMaxDrop());
+    map.putInt("acceptedCount", AutoClickerConfig.getAcceptedCount());
+    map.putInt("lastLatencyMs", AutoClickerConfig.getLastLatencyMs());
+    WritableArray pkgs = Arguments.createArray();
+    for (String pkg : AutoClickerConfig.getMonitoredPackages()) pkgs.pushString(pkg);
+    map.putArray("monitoredPackages", pkgs);
+    return map;
+  }
+
+  private static void emitRuntimeStatusToJs(WritableMap status) {
+    if (reactContext == null || !reactContext.hasActiveReactInstance()) return;
+    reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+        .emit("onAutomationStatusChanged", status);
+  }
+
   static void emitRideAccepted(String packageName, int price, String label) {
     emitRideAccepted(packageName, price, label, -1, "Standard");
   }
@@ -535,6 +749,7 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
         i.putExtra("label", label != null ? label : "");
         i.putExtra("latencyMs", latencyMs);
         i.putExtra("mode", mode != null ? mode : "Standard");
+        i.putExtra("acceptedCount", AutoClickerConfig.getAcceptedCount());
         ctx.sendBroadcast(i);
       } catch (Exception e) {
         android.util.Log.w("AutoClickerModule", "broadcast accept failed: " + e.getMessage());
@@ -542,7 +757,7 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     }
     // Same-process fast path (UI still alive in this process)
     if (reactContext != null && reactContext.hasActiveReactInstance()) {
-      emitToJs(packageName, price, label, latencyMs, mode);
+      emitToJs(packageName, price, label, latencyMs, mode, AutoClickerConfig.getAcceptedCount());
     }
   }
 
@@ -551,7 +766,8 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       int price,
       String label,
       int latencyMs,
-      String mode
+      String mode,
+      int acceptedCount
   ) {
     if (reactContext == null || !reactContext.hasActiveReactInstance()) return;
     WritableMap params = Arguments.createMap();
@@ -560,6 +776,7 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     params.putString("label", label != null ? label : "");
     params.putInt("latencyMs", latencyMs);
     params.putString("mode", mode != null ? mode : "Standard");
+    params.putInt("acceptedCount", acceptedCount);
     params.putDouble("timestamp", System.currentTimeMillis());
     reactContext
         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)

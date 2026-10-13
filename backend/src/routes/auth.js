@@ -5,8 +5,16 @@
 const express = require('express');
 const router = express.Router();
 const { optionalDevice } = require('../middleware/auth');
+const { createRateLimit, clientKey } = require('../middleware/rateLimit');
+const { sendError } = require('../utils/httpError');
+
+const verifyOtpLimit = createRateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 8,
+  keyFn: (req) => `${clientKey(req)}:${String(req.body?.phone || '').replace(/\D/g, '').slice(-10)}`,
+});
 const { verifyAccessToken } = require('../services/msg91');
-const { ensureUser, applyReferralCode, getUserByPhone } = require('../models/user');
+const { ensureUser, applyReferralCode, getUserByPhone, issueSessionToken } = require('../models/user');
 const { assertDeviceAllowed, DeviceLimitError } = require('../models/device');
 const { isSubscriptionActive } = require('../models/mapUser');
 
@@ -14,7 +22,7 @@ const { isSubscriptionActive } = require('../models/mapUser');
  * POST /auth/verify-otp
  * Body: { phone, accessToken, referralCode?, deviceId?, deviceLabel? }
  */
-router.post('/verify-otp', optionalDevice, async (req, res) => {
+router.post('/verify-otp', verifyOtpLimit, optionalDevice, async (req, res) => {
   try {
     const phone = String(req.body?.phone || '').replace(/\D/g, '');
     const accessToken =
@@ -78,9 +86,23 @@ router.post('/verify-otp', optionalDevice, async (req, res) => {
     }
 
     const updated = await getUserByPhone(phone);
+    let sessionToken = null;
+    try {
+      const issued = await issueSessionToken(phone);
+      sessionToken = issued.sessionToken;
+    } catch (e) {
+      if (e.code === '42703') {
+        return res.status(503).json({
+          message: 'Login storage is not ready. Apply migration 008, then try again.',
+          code: 'SESSION_UNAVAILABLE',
+        });
+      }
+      throw e;
+    }
     res.json({
       success: true,
       phone: updated.phone,
+      sessionToken,
       referralCode: updated.referralCode,
       referralApplied,
       referralError,
@@ -90,9 +112,7 @@ router.post('/verify-otp', optionalDevice, async (req, res) => {
       maxDevices: updated.maxDevices,
     });
   } catch (err) {
-    console.error('verify-otp error:', err.message);
-    const status = err.status || 500;
-    res.status(status).json({ message: err.message, code: err.code });
+    sendError(res, err, 'Login failed');
   }
 });
 

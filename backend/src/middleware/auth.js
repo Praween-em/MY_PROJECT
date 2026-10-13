@@ -1,32 +1,15 @@
 /**
- * auth.js — phone + optional deviceId middleware
- *
- * Mobile app sends phone as Bearer token / body / query / x-phone.
- * deviceId from body / query / x-device-id.
+ * Session middleware.
+ * A login session is a hex bearer issued after MSG91 confirms the OTP.
+ * A phone number in the body, query, or header is not a credential.
  */
 
-const { normalizePhone } = require('../utils/phone');
+const { getUserBySessionToken } = require('../models/user');
 
-function requirePhone(req, res, next) {
-  let raw =
-    req.body?.phone ||
-    req.query?.phone ||
-    req.headers['x-phone'];
-
-  if (!raw) {
-    const auth = req.headers.authorization || req.headers.Authorization;
-    if (auth?.startsWith('Bearer ')) {
-      raw = auth.slice(7).trim();
-    }
-  }
-
-  const phone = normalizePhone(raw);
-  if (!phone) {
-    return res.status(401).json({ message: 'Valid 10-digit phone number required' });
-  }
-
-  req.phone = phone;
-  next();
+function readBearer(req) {
+  const auth = req.headers.authorization || req.headers.Authorization;
+  if (!auth?.startsWith('Bearer ')) return '';
+  return auth.slice(7).trim();
 }
 
 function readDeviceId(req) {
@@ -47,6 +30,35 @@ function readDeviceLabel(req) {
     req.headers['x-device-label'] ||
     null
   );
+}
+
+async function requirePhone(req, res, next) {
+  try {
+    const bearer = readBearer(req);
+    if (!/^[a-f0-9]{32,128}$/i.test(bearer)) {
+      return res.status(401).json({
+        message: 'Log in again.',
+        code: 'SESSION_REQUIRED',
+      });
+    }
+    const user = await getUserBySessionToken(bearer);
+    if (!user?.phone) {
+      return res.status(401).json({
+        message: 'Session expired. Log in again.',
+        code: 'SESSION_REQUIRED',
+      });
+    }
+    req.phone = user.phone;
+    next();
+  } catch (err) {
+    if (err.code === '42703') {
+      return res.status(503).json({
+        message: 'Login storage is not ready. Apply migration 008, then log in again.',
+        code: 'SESSION_UNAVAILABLE',
+      });
+    }
+    next(err);
+  }
 }
 
 function optionalDevice(req, _res, next) {

@@ -18,12 +18,12 @@ export default function MainTabs() {
 
   return (
     <Tab.Navigator
-      lazy
-      detachInactiveScreens
       screenOptions={{
         headerShown: false,
-        lazy: true,
-        freezeOnBlur: true,
+        lazy: false,
+        freezeOnBlur: false,
+        sceneStyle: { backgroundColor: colors.background },
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopWidth: 0,

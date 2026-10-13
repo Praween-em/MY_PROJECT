@@ -26,6 +26,7 @@ public class BootReceiver extends BroadcastReceiver {
           + " minPrice=" + AutoClickerConfig.getMinPrice());
       EngineKeepAlive.ensureStarted(context);
       RecentsGuard.ensureStarted(context);
+      WatchdogAlarm.schedule(context);
     }
   }
 }

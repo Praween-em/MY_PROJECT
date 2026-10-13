@@ -2,6 +2,7 @@
  * user.js — PostgreSQL User model
  */
 
+const crypto = require('crypto');
 const { query, withTransaction } = require('../config/db');
 const { mapUser } = require('./mapUser');
 const { getPlanById } = require('./plans');
@@ -12,6 +13,20 @@ const {
   checkRewardMilestone,
   REWARD_DAYS,
 } = require('../services/referral');
+
+async function issueSessionToken(phone) {
+  const sessionToken = crypto.randomBytes(24).toString('hex');
+  const { rows } = await query(
+    `UPDATE users SET session_token = $1, updated_at = NOW() WHERE phone = $2 RETURNING *`,
+    [sessionToken, phone]
+  );
+  return { user: mapUser(rows[0]), sessionToken };
+}
+
+async function getUserBySessionToken(token) {
+  const { rows } = await query('SELECT * FROM users WHERE session_token = $1', [token]);
+  return mapUser(rows[0]);
+}
 
 async function getUserByPhone(phone) {
   const { rows } = await query('SELECT * FROM users WHERE phone = $1', [phone]);
@@ -184,6 +199,8 @@ async function adminUpdateUser(phone, patch) {
 }
 
 module.exports = {
+  issueSessionToken,
+  getUserBySessionToken,
   getUserByPhone,
   getUserByReferralCode,
   ensureUser,

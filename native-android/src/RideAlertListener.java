@@ -2,6 +2,7 @@ package com.ridio.app;
 
 import android.app.Notification;
 import android.content.ComponentName;
+import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -41,10 +42,21 @@ public class RideAlertListener extends NotificationListenerService {
   @Override
   public void onListenerDisconnected() {
     Log.w(TAG, "NLS_DISCONNECTED — requesting rebind");
+    keepBound(getApplicationContext());
+  }
+
+  /**
+   * Some OEMs unbind NLS after hours without calling {@link #onListenerDisconnected}.
+   * Safe to call while already bound — Android no-ops or reconnects.
+   */
+  public static void keepBound(Context context) {
+    if (context == null) return;
+    if (Build.VERSION.SDK_INT < 24) return;
     try {
-      if (Build.VERSION.SDK_INT >= 24) {
-        requestRebind(new ComponentName(getApplicationContext(), RideAlertListener.class));
-      }
+      requestRebind(new ComponentName(
+          context.getApplicationContext(),
+          RideAlertListener.class
+      ));
     } catch (Throwable t) {
       Log.w(TAG, "NLS_REBIND_FAIL " + t.getMessage());
     }

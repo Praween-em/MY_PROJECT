@@ -6,7 +6,10 @@ const DEFAULTS = {
   delayMs: 0,
   nuclearMode: true,
   minPrice: 0,
+  maxPrice: 0,
+  minPickup: 0,
   maxPickup: 0,
+  maxDrop: 0,
 };
 
 export async function getSettings() {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { DarkTheme, NavigationContainer } from '@react-navigation/native';
+import { navigationRef } from './rootNavigation';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
@@ -7,7 +8,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import LoginScreen from '../screens/LoginScreen';
 import PlansScreen from '../screens/PlansScreen';
 import PermissionsSetupScreen from '../screens/PermissionsSetupScreen';
-import LoadingScreen from '../screens/LoadingScreen';
 import PrivacyPolicyScreen from '../screens/PrivacyPolicyScreen';
 import TermsScreen from '../screens/TermsScreen';
 import MainTabs from './MainTabs';
@@ -21,6 +21,8 @@ function resolveInitialRoute(user) {
   return 'Main';
 }
 
+const rootStyle = { flex: 1, backgroundColor: colors.background };
+
 export default function RootNavigator() {
   const [initialRoute, setInitialRoute] = useState(null);
 
@@ -30,16 +32,13 @@ export default function RootNavigator() {
 
   useEffect(() => {
     let cancelled = false;
+    const finish = (route) => {
+      if (!cancelled) setInitialRoute((current) => current || route);
+    };
     getStoredUser()
-      .then((user) => {
-        if (!cancelled) setInitialRoute(resolveInitialRoute(user));
-      })
-      .catch(() => {
-        if (!cancelled) setInitialRoute('Login');
-      });
-    const fallback = setTimeout(() => {
-      if (!cancelled) setInitialRoute((r) => r || 'Login');
-    }, 800);
+      .then((user) => finish(resolveInitialRoute(user)))
+      .catch(() => finish('Login'));
+    const fallback = setTimeout(() => finish('Login'), 700);
     return () => {
       cancelled = true;
       clearTimeout(fallback);
@@ -47,20 +46,17 @@ export default function RootNavigator() {
   }, []);
 
   useEffect(() => {
-    hideNativeSplash();
-  }, [hideNativeSplash]);
+    if (!initialRoute) return undefined;
+    const backup = setTimeout(hideNativeSplash, 450);
+    return () => clearTimeout(backup);
+  }, [initialRoute, hideNativeSplash]);
 
-  if (!initialRoute) {
-    return (
-      <SafeAreaProvider style={{ flex: 1, backgroundColor: colors.background }}>
-        <LoadingScreen onReady={hideNativeSplash} />
-      </SafeAreaProvider>
-    );
-  }
+  if (!initialRoute) return null;
 
   return (
-    <SafeAreaProvider onLayout={hideNativeSplash}>
+    <SafeAreaProvider style={rootStyle} onLayout={hideNativeSplash}>
       <NavigationContainer
+        ref={navigationRef}
         theme={{
           ...DarkTheme,
           colors: {
@@ -77,8 +73,10 @@ export default function RootNavigator() {
           initialRouteName={initialRoute}
           screenOptions={{
             headerShown: false,
-            animation: 'fade',
-            animationDuration: 150,
+            animation: 'slide_from_right',
+            animationDuration: 220,
+            gestureEnabled: true,
+            contentStyle: { backgroundColor: colors.background },
           }}
         >
           <Stack.Screen name="Login" component={LoginScreen} />

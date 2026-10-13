@@ -28,15 +28,11 @@ import AppSwitch from '../components/AppSwitch';
 import { checkEntitlement, ApiError, getSocialLinks } from '../services/api';
 import AppHeader, { SectionTitle } from '../components/AppHeader';
 import {
-  getServiceStatus,
   onRideAccepted,
-  saveSettings,
-  setServiceEnabled,
-  setNuclearMode,
-  setDelayMs,
-  setMonitoredPackages,
-  setMinPrice,
-  setMaxPickup,
+  applyAutomationConfig,
+  getAutomationStatus,
+  onAutomationStatusChanged,
+  updateEntitlement,
   isNativeAvailable,
 } from '../services/autoclicker';
 
@@ -78,11 +74,15 @@ export default function HomeScreen({ navigation }) {
 
   const [enabled, setEnabled]       = useState(false);
   const [minPrice, setMinPriceState] = useState('0');
+  const [maxPrice, setMaxPriceState] = useState('0');
+  const [minPickup, setMinPickupState] = useState('0');
   const [maxPickup, setMaxPickupState] = useState('0');
+  const [maxDrop, setMaxDropState] = useState('0');
   const [saving, setSaving]         = useState(false);
   const [socialLinks, setSocialLinks] = useState(DEFAULT_SOCIAL_LINKS);
   const [ridesAccepted, setRidesAccepted] = useState(0);
   const [lastLatency, setLastLatency] = useState(null);
+  const [runtimeStatus, setRuntimeStatus] = useState(null);
 
   const accessOn = permStatus.accessibility;
   const nlsOn = !!permStatus.notificationListener;
@@ -102,14 +102,42 @@ export default function HomeScreen({ navigation }) {
 
   const parseFilters = () => ({
     fare: Math.max(0, parseInt(minPrice || '0', 10) || 0),
+    maxPrice: Math.max(0, parseInt(maxPrice || '0', 10) || 0),
+    minPickup: Math.max(0, parseFloat(minPickup || '0') || 0),
     pickup: Math.max(0, parseFloat(maxPickup || '0') || 0),
+    maxDrop: Math.max(0, parseFloat(maxDrop || '0') || 0),
   });
 
-  const pushFiltersToNative = async (fare, pickup) => {
+  const nativeEntitlement = () => ({
+    active: isActive,
+    deviceAllowed,
+    subscriptionEndMs: subscriptionEnd ? new Date(subscriptionEnd).getTime() : 0,
+  });
+
+  const filterRecord = (f) => ({
+    minPrice: f.fare,
+    maxPrice: f.maxPrice,
+    minPickup: f.minPickup,
+    maxPickup: f.pickup,
+    maxDrop: f.maxDrop,
+  });
+
+  const filterPayload = (nextEnabled) => ({
+    enabled: nextEnabled,
+    ...filterRecord(parseFilters()),
+    monitoredPackages: DEFAULT_PACKAGES,
+    entitlement: nativeEntitlement(),
+  });
+
+  const pushFiltersToNative = async () => {
     if (!isNativeAvailable()) return;
     try {
-      await setMinPrice(fare);
-      await setMaxPickup(pickup);
+      const f = parseFilters();
+      await persistLocalSettings(filterRecord(f));
+      const status = await applyAutomationConfig(
+        filterPayload(runtimeStatus?.requestedEnabled ?? enabled)
+      );
+      setRuntimeStatus(status);
     } catch {
       /* keep local filters even if native is down */
     }
@@ -119,7 +147,8 @@ export default function HomeScreen({ navigation }) {
     setEnabled(false);
     if (isNativeAvailable()) {
       try {
-        await setServiceEnabled(false);
+        const status = await applyAutomationConfig(filterPayload(false));
+        setRuntimeStatus(status);
       } catch {
         // ignore — UI already off
       }
@@ -129,10 +158,10 @@ export default function HomeScreen({ navigation }) {
   const handleRefresh = async () => {
     try {
       await refreshSub();
-      // Force-off runs via featuresAllowed effect after refresh updates isActive
       if (isNativeAvailable()) {
-        await setNuclearMode(true).catch(() => {});
-        await setDelayMs(0).catch(() => {});
+        const status = await getAutomationStatus();
+        setRuntimeStatus(status);
+        setEnabled(status?.state === 'RUNNING' || status?.state === 'DEGRADED');
       }
     } catch (err) {
       console.warn('Refresh error:', err);
@@ -146,33 +175,44 @@ export default function HomeScreen({ navigation }) {
         const local = await getSettings();
         if (!cancelled) {
           setMinPriceState(String(local.minPrice ?? 0));
+          setMaxPriceState(String(local.maxPrice ?? 0));
+          setMinPickupState(String(local.minPickup ?? 0));
           setMaxPickupState(String(local.maxPickup ?? 0));
+          setMaxDropState(String(local.maxDrop ?? 0));
         }
       } catch {
         // ignore
       }
       if (!isNativeAvailable()) return;
       try {
-        const status = await getServiceStatus();
+        const status = await getAutomationStatus();
         if (cancelled) return;
-        await setNuclearMode(true).catch(() => {});
-        await setDelayMs(0).catch(() => {});
+        setRuntimeStatus(status);
         if (typeof status.minPrice === 'number') {
           setMinPriceState(String(status.minPrice));
+        }
+        if (typeof status.maxPrice === 'number') {
+          setMaxPriceState(String(status.maxPrice));
+        }
+        if (typeof status.minPickup === 'number') {
+          setMinPickupState(String(status.minPickup));
         }
         if (typeof status.maxPickup === 'number') {
           setMaxPickupState(String(status.maxPickup));
         }
-        if (subLoading) return;
-        const wantOn = !!status.enabled && featuresAllowed;
-        setEnabled(wantOn);
-        if (wantOn) {
-          try {
-            await setServiceEnabled(true);
-          } catch {
-            // ignore
-          }
+        if (typeof status.maxDrop === 'number') {
+          setMaxDropState(String(status.maxDrop));
         }
+        if (typeof status.acceptedCount === 'number') {
+          setRidesAccepted(status.acceptedCount);
+        }
+        if (typeof status.lastLatencyMs === 'number' && status.lastLatencyMs >= 0) {
+          setLastLatency(status.lastLatencyMs);
+        }
+        if (subLoading) return;
+        const wantOn = (status?.state === 'RUNNING' || status?.state === 'DEGRADED')
+          && featuresAllowed;
+        setEnabled(wantOn);
       } catch {
         // ignore
       }
@@ -180,9 +220,34 @@ export default function HomeScreen({ navigation }) {
     return () => { cancelled = true; };
   }, [subLoading, featuresAllowed]);
 
+  // The engine survives React process death, so it receives each refreshed
+  // server entitlement as durable native state rather than trusting UI memory.
+  useEffect(() => {
+    if (subLoading || !isNativeAvailable()) return;
+    updateEntitlement(nativeEntitlement())
+      .then((status) => {
+        setRuntimeStatus(status);
+        setEnabled(status?.state === 'RUNNING' || status?.state === 'DEGRADED');
+      })
+      .catch(() => {});
+  }, [subLoading, isActive, deviceAllowed, subscriptionEnd]);
+
   // Force native OFF only when plan end is past or device is blocked.
   // Never treat a bare active===false (API glitch / loading) as shutoff —
   // that was wiping Auto-accept and making zero rides click.
+  useEffect(() => {
+    const unsubscribe = onAutomationStatusChanged((status) => {
+      if (!status) return;
+      setRuntimeStatus(status);
+      setEnabled(status.state === 'RUNNING' || status.state === 'DEGRADED');
+      if (typeof status.acceptedCount === 'number') setRidesAccepted(status.acceptedCount);
+      if (typeof status.lastLatencyMs === 'number' && status.lastLatencyMs >= 0) {
+        setLastLatency(status.lastLatencyMs);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   useEffect(() => {
     if (subLoading) return;
     if (!subscription) return;
@@ -196,7 +261,11 @@ export default function HomeScreen({ navigation }) {
   useEffect(() => {
     const unsub = onRideAccepted((event) => {
       try {
-        setRidesAccepted((n) => n + 1);
+        if (typeof event?.acceptedCount === 'number' && event.acceptedCount >= 0) {
+          setRidesAccepted(event.acceptedCount);
+        } else {
+          setRidesAccepted((n) => n + 1);
+        }
         if (typeof event?.latencyMs === 'number' && event.latencyMs >= 0) {
           setLastLatency(event.latencyMs);
         }
@@ -210,6 +279,21 @@ export default function HomeScreen({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      if (isNativeAvailable()) {
+        getAutomationStatus()
+          .then((status) => {
+            if (cancelled || !status) return;
+            setRuntimeStatus(status);
+            setEnabled(status.state === 'RUNNING' || status.state === 'DEGRADED');
+            if (typeof status.acceptedCount === 'number') {
+              setRidesAccepted(status.acceptedCount);
+            }
+            if (typeof status.lastLatencyMs === 'number' && status.lastLatencyMs >= 0) {
+              setLastLatency(status.lastLatencyMs);
+            }
+          })
+          .catch(() => {});
+      }
       getSocialLinks()
         .then((data) => {
           if (cancelled || !data) return;
@@ -325,14 +409,16 @@ export default function HomeScreen({ navigation }) {
         ]
       );
     }
-    const { fare, pickup } = parseFilters();
-    setEnabled(value);
     if (isNativeAvailable()) {
       try {
-        await persistLocalSettings({ minPrice: fare, maxPickup: pickup });
-        await pushFiltersToNative(fare, pickup);
-        await setMonitoredPackages(DEFAULT_PACKAGES);
-        await setServiceEnabled(value);
+        await persistLocalSettings(filterRecord(parseFilters()));
+        const status = await applyAutomationConfig(filterPayload(value));
+        setRuntimeStatus(status);
+        const running = status?.state === 'RUNNING' || status?.state === 'DEGRADED';
+        setEnabled(running);
+        if (value && !running) {
+          Alert.alert('Auto-accept not started', status?.blockingReason || 'Native engine is not ready.');
+        }
       } catch {
         setEnabled(!value);
       }
@@ -348,19 +434,19 @@ export default function HomeScreen({ navigation }) {
       Alert.alert('Please wait', 'Subscription is still loading — try Save again in a moment.');
       return;
     }
-    const { fare, pickup } = parseFilters();
+    const f = parseFilters();
     setSaving(true);
     try {
       const nextEnabled = featuresAllowed ? enabled : false;
-      await persistLocalSettings({ minPrice: fare, maxPickup: pickup });
-      await saveSettings({
-        enabled: nextEnabled,
-        minPrice: fare,
-        maxPickup: pickup,
-        monitoredPackages: DEFAULT_PACKAGES,
-      });
-      setMinPriceState(String(fare));
-      setMaxPickupState(String(pickup));
+      await persistLocalSettings(filterRecord(f));
+      const status = await applyAutomationConfig(filterPayload(nextEnabled));
+      setRuntimeStatus(status);
+      setEnabled(status?.state === 'RUNNING' || status?.state === 'DEGRADED');
+      setMinPriceState(String(f.fare));
+      setMaxPriceState(String(f.maxPrice));
+      setMinPickupState(String(f.minPickup));
+      setMaxPickupState(String(f.pickup));
+      setMaxDropState(String(f.maxDrop));
       Alert.alert('Settings Saved', 'Filters and auto-accept settings are saved.');
     } catch (err) {
       Alert.alert('Error', err.message || 'Could not save settings.');
@@ -425,6 +511,11 @@ export default function HomeScreen({ navigation }) {
                   ? 'Monitoring Rapido and Ola ride signals'
                   : 'Turn on when you are ready to receive rides'}
               </Text>
+              {!!runtimeStatus?.blockingReason && (
+                <Text style={styles.powerSub}>
+                  Native status: {runtimeStatus.blockingReason.replace(/_/g, ' ').toLowerCase()}
+                </Text>
+              )}
             </View>
             <AppSwitch
               value={enabled}
@@ -512,9 +603,9 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        <SectionTitle label="FILTERS" title="Fare and pickup" />
+        <SectionTitle label="FILTERS" title="Fare and distance" />
         <Text style={styles.priceRangeHint}>
-          Applies to Rapido and Ola. Set 0 to allow any fare or any pickup distance.
+          Applies to Rapido and Ola. 0 means off. If a filter is on and that number is missing from the card, the tap is skipped.
         </Text>
         <View style={styles.filterGrid}>
           <View style={styles.filterPad}>
@@ -529,12 +620,40 @@ export default function HomeScreen({ navigation }) {
                 placeholder="0"
                 placeholderTextColor={colors.icyDim}
                 maxLength={6}
-                onEndEditing={() => {
-                  const { fare, pickup } = parseFilters();
-                  persistLocalSettings({ minPrice: fare, maxPickup: pickup }).catch(() => {});
-                  pushFiltersToNative(fare, pickup).catch(() => {});
-                }}
+                onEndEditing={() => { pushFiltersToNative().catch(() => {}); }}
               />
+            </View>
+          </View>
+          <View style={styles.filterPad}>
+            <Text style={styles.filterFieldLabel}>Max fare</Text>
+            <View style={styles.priceEditBlock}>
+              <Text style={styles.rupeeSign}>₹</Text>
+              <TextInput
+                style={styles.priceInput}
+                value={maxPrice}
+                onChangeText={(t) => setMaxPriceState(t.replace(/[^0-9]/g, ''))}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor={colors.icyDim}
+                maxLength={6}
+                onEndEditing={() => { pushFiltersToNative().catch(() => {}); }}
+              />
+            </View>
+          </View>
+          <View style={styles.filterPad}>
+            <Text style={styles.filterFieldLabel}>Min pickup</Text>
+            <View style={styles.priceEditBlock}>
+              <TextInput
+                style={styles.priceInput}
+                value={minPickup}
+                onChangeText={(t) => setMinPickupState(t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor={colors.icyDim}
+                maxLength={5}
+                onEndEditing={() => { pushFiltersToNative().catch(() => {}); }}
+              />
+              <Text style={styles.unitSuffix}>km</Text>
             </View>
           </View>
           <View style={styles.filterPad}>
@@ -548,18 +667,30 @@ export default function HomeScreen({ navigation }) {
                 placeholder="0"
                 placeholderTextColor={colors.icyDim}
                 maxLength={5}
-                onEndEditing={() => {
-                  const { fare, pickup } = parseFilters();
-                  persistLocalSettings({ minPrice: fare, maxPickup: pickup }).catch(() => {});
-                  pushFiltersToNative(fare, pickup).catch(() => {});
-                }}
+                onEndEditing={() => { pushFiltersToNative().catch(() => {}); }}
+              />
+              <Text style={styles.unitSuffix}>km</Text>
+            </View>
+          </View>
+          <View style={styles.filterPad}>
+            <Text style={styles.filterFieldLabel}>Max drop</Text>
+            <View style={styles.priceEditBlock}>
+              <TextInput
+                style={styles.priceInput}
+                value={maxDrop}
+                onChangeText={(t) => setMaxDropState(t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor={colors.icyDim}
+                maxLength={5}
+                onEndEditing={() => { pushFiltersToNative().catch(() => {}); }}
               />
               <Text style={styles.unitSuffix}>km</Text>
             </View>
           </View>
         </View>
         <Text style={styles.priceHint}>
-          Skip offers below the fare or farther than the pickup limit.
+          Skip offers outside these fare and distance limits.
         </Text>
 
         <TouchableOpacity
@@ -756,9 +887,9 @@ const styles = StyleSheet.create({
   accessTitle: { color: colors.icy, fontSize: 14, fontWeight: '800' },
   accessState: { fontSize: 12, fontWeight: '700' },
 
-  filterGrid: { flexDirection: 'row', gap: 10 },
+  filterGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   filterPad: {
-    flex: 1, backgroundColor: colors.surfaceCard, borderRadius: 22, padding: 14, gap: 10,
+    width: '47%', backgroundColor: colors.surfaceCard, borderRadius: 22, padding: 14, gap: 10,
   },
   filterFieldLabel: { fontSize: 12, color: colors.icyMuted, fontWeight: '700' },
   priceRangeHint: { fontSize: 12, color: colors.icyDim, lineHeight: 17, marginTop: -4 },

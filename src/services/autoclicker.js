@@ -28,6 +28,38 @@ export function getServiceStatus() {
   return AutoClickerModule?.getServiceStatus() ?? unavailable();
 }
 
+/** Authoritative native lifecycle state; the UI must not infer this itself. */
+export function getAutomationStatus() {
+  return AutoClickerModule?.getAutomationStatus?.() ?? getServiceStatus();
+}
+
+/** Atomically persist and apply a complete engine configuration revision. */
+export function applyAutomationConfig(config) {
+  if (!AutoClickerModule?.applyAutomationConfig) return unavailable();
+  const payload = {
+    enabled: !!config?.enabled,
+    minPrice: Math.max(0, Number(config?.minPrice) || 0),
+    maxPrice: Math.max(0, Number(config?.maxPrice) || 0),
+    minPickup: Math.max(0, Number(config?.minPickup) || 0),
+    maxPickup: Math.max(0, Number(config?.maxPickup) || 0),
+    maxDrop: Math.max(0, Number(config?.maxDrop) || 0),
+    monitoredPackages: Array.isArray(config?.monitoredPackages)
+      ? config.monitoredPackages
+      : [],
+  };
+  if (config?.entitlement) payload.entitlement = config.entitlement;
+  return AutoClickerModule.applyAutomationConfig(payload);
+}
+
+export function updateEntitlement(entitlement) {
+  if (!AutoClickerModule?.updateEntitlement) return unavailable();
+  return AutoClickerModule.updateEntitlement({
+    active: !!entitlement?.active,
+    deviceAllowed: entitlement?.deviceAllowed !== false,
+    subscriptionEndMs: Math.max(0, Number(entitlement?.subscriptionEndMs) || 0),
+  });
+}
+
 export function setMinPrice(price) {
   return AutoClickerModule?.setMinPrice(price) ?? unavailable();
 }
@@ -58,22 +90,26 @@ export function saveSettings({
   minPrice,
   maxPickup,
 }) {
-  if (!AutoClickerModule) return unavailable();
-  const fare = Math.max(0, Number(minPrice) || 0);
-  const pickup = Math.max(0, Number(maxPickup) || 0);
-  return Promise.all([
-    AutoClickerModule.setServiceEnabled(!!enabled),
-    AutoClickerModule.setNuclearMode(true),
-    AutoClickerModule.setDelayMs(0),
-    AutoClickerModule.setMinPrice(fare),
-    AutoClickerModule.setMaxPickup?.(pickup) ?? Promise.resolve(pickup),
-    AutoClickerModule.setMonitoredPackages(monitoredPackages),
-  ]);
+  return applyAutomationConfig({
+    enabled,
+    monitoredPackages,
+    minPrice,
+    maxPrice: 0,
+    minPickup: 0,
+    maxPickup,
+    maxDrop: 0,
+  });
 }
 
 export function onRideAccepted(callback) {
   if (!emitter) return () => {};
   const sub = emitter.addListener('onRideAccepted', callback);
+  return () => sub.remove();
+}
+
+export function onAutomationStatusChanged(callback) {
+  if (!emitter) return () => {};
+  const sub = emitter.addListener('onAutomationStatusChanged', callback);
   return () => sub.remove();
 }
 
@@ -93,16 +129,4 @@ export function openShizukuApp() {
 
 export function openShizukuPlayStore() {
   if (AutoClickerModule?.openShizukuPlayStore) AutoClickerModule.openShizukuPlayStore();
-}
-
-/** Monitored driver-app package ids (internal — do not show names in UI). */
-export const APP_PACKAGES = {
-  ola: 'com.olacabs.oladriver',
-  rapido: 'com.rapido.rider',
-};
-
-/** Generic label for history — never expose partner brand names in UI. */
-export function packageLabel(packageName) {
-  if (!packageName) return 'Ride';
-  return 'Driver app';
 }

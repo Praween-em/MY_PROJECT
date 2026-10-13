@@ -10,6 +10,7 @@ const { placeOrder, getAwaitingOrder } = require('../models/subscriptionOrders')
 const { getUserByPhone } = require('../models/user');
 const { assertDeviceAllowed, checkEntitlement, DeviceLimitError } = require('../models/device');
 const { isSubscriptionActive } = require('../models/mapUser');
+const { sendError } = require('../utils/httpError');
 
 /** GET /subscription/plans — public; app loads prices from here (no rebuild needed) */
 router.get('/plans', async (_req, res) => {
@@ -19,7 +20,7 @@ router.get('/plans', async (_req, res) => {
     res.json({ plans });
   } catch (err) {
     console.error('GET /subscription/plans:', err);
-    res.status(500).json({ message: err.message });
+    sendError(res, err, 'Could not load plans');
   }
 });
 
@@ -63,8 +64,7 @@ router.get('/status', requirePhone, optionalDevice, async (req, res) => {
       status: user.status,
     });
   } catch (err) {
-    console.error('status error:', err);
-    res.status(500).json({ message: err.message });
+    sendError(res, err, 'Could not load subscription');
   }
 });
 
@@ -74,7 +74,7 @@ router.post('/orders', requirePhone, async (req, res) => {
     const order = await placeOrder(req.phone, req.body?.planId);
     res.status(201).json({ order });
   } catch (err) {
-    res.status(err.status || 500).json({ message: err.message });
+    sendError(res, err, 'Could not place the order');
   }
 });
 
@@ -84,7 +84,7 @@ router.get('/orders/pending', requirePhone, async (req, res) => {
     const order = await getAwaitingOrder(req.phone);
     res.json({ order });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendError(res, err, 'Could not load the order');
   }
 });
 
@@ -100,8 +100,7 @@ router.post('/bind-device', requirePhone, requireDevice, async (req, res) => {
     if (err instanceof DeviceLimitError || err.code === 'DEVICE_LIMIT') {
       return res.status(403).json({ message: err.message, code: 'DEVICE_LIMIT' });
     }
-    const status = err.status || 500;
-    res.status(status).json({ message: err.message, code: err.code });
+    sendError(res, err, 'Could not bind this device');
   }
 });
 
