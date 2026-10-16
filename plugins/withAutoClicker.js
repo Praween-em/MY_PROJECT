@@ -404,6 +404,76 @@ function findMainApplication(platformRoot) {
   return null;
 }
 
+const SPLASH_MANAGER = 'node_modules/expo-splash-screen/android/src/main/java/expo/modules/splashscreen/SplashScreenManager.kt';
+
+function patchSplashDismiss(projectRoot) {
+  const splashPath = path.join(projectRoot, SPLASH_MANAGER);
+  if (!fs.existsSync(splashPath)) return;
+  let contents = fs.readFileSync(splashPath, 'utf8');
+  if (contents.includes('Remove the splash view immediately')) return;
+  const fadeBlock = `splashScreen.setOnExitAnimationListener { splashScreenViewProvider ->
+      val splashScreenView = splashScreenViewProvider.view
+      splashScreenView
+        .animate()
+        .setDuration(duration)
+        .alpha(0.0f)
+        .setInterpolator(AccelerateInterpolator())
+        .withEndAction {
+          if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            splashScreenViewProvider.remove()
+          } else {
+            // Avoid calling applyThemesSystemBarAppearance
+            (splashScreenView as SplashScreenView).remove()
+          }
+        }.start()
+    }`;
+  const immediateBlock = `// Remove the splash view immediately. Funtouch, ColorOS, and MIUI often never
+    // finish the fade, so withEndAction never runs and the logo stays on screen.
+    splashScreen.setOnExitAnimationListener { splashScreenViewProvider ->
+      val splashScreenView = splashScreenViewProvider.view
+      try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && splashScreenView is SplashScreenView) {
+          splashScreenView.remove()
+        } else {
+          splashScreenViewProvider.remove()
+        }
+      } catch (_: Throwable) {
+        runCatching { splashScreenViewProvider.remove() }
+      }
+    }`;
+  if (!contents.includes(fadeBlock)) {
+    console.warn('[withAutoClicker] splash exit block not found — skip splash dismiss patch');
+    return;
+  }
+  contents = contents.replace(fadeBlock, immediateBlock);
+  contents = contents.replace('import android.view.animation.AccelerateInterpolator\n', '');
+  if (!contents.includes('@Suppress("UNUSED_PARAMETER")\n  private fun configureSplashScreen')) {
+    contents = contents.replace(
+      'private fun configureSplashScreen(',
+      '@Suppress("UNUSED_PARAMETER")\n  private fun configureSplashScreen('
+    );
+  }
+  fs.writeFileSync(splashPath, contents);
+  console.log('[withAutoClicker] splash screen dismisses immediately on OEM devices');
+}
+
+function patchMainActivitySplash(platformRoot) {
+  const mainActivity = path.join(platformRoot, JAVA_DIR, 'MainActivity.kt');
+  if (!fs.existsSync(mainActivity)) return;
+  let contents = fs.readFileSync(mainActivity, 'utf8');
+  if (contents.includes('SplashScreenManager.hide()')) return;
+  if (!contents.includes('super.onCreate(null)')) return;
+  contents = contents.replace(
+    'super.onCreate(null)',
+    `super.onCreate(null)
+    // If JS never reaches hide, or the OEM splash fade never finishes,
+    // drop the logo anyway so the first screen can show.
+    window.decorView.postDelayed({ SplashScreenManager.hide() }, 1500)`
+  );
+  fs.writeFileSync(mainActivity, contents);
+  console.log('[withAutoClicker] MainActivity drops the splash if startup stalls');
+}
+
 function patchMainApplication(platformRoot) {
   const mainAppPath = findMainApplication(platformRoot);
   if (!mainAppPath) return;
@@ -611,6 +681,8 @@ function withAutoClickerSources(config) {
       copyNativeSources(root, androidRoot);
       copyBrandIcons(root, androidRoot);
       installBrandSplash(root, androidRoot);
+      patchSplashDismiss(root);
+      patchMainActivitySplash(androidRoot);
       patchMainApplication(androidRoot);
       patchReleaseSize(androidRoot);
       return config;

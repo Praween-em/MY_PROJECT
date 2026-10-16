@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { DarkTheme, NavigationContainer } from '@react-navigation/native';
 import { navigationRef } from './rootNavigation';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as SplashScreen from 'expo-splash-screen';
 
 import LoginScreen from '../screens/LoginScreen';
+import LoadingScreen from '../screens/LoadingScreen';
 import PlansScreen from '../screens/PlansScreen';
 import PermissionsSetupScreen from '../screens/PermissionsSetupScreen';
 import PrivacyPolicyScreen from '../screens/PrivacyPolicyScreen';
@@ -26,10 +26,6 @@ const rootStyle = { flex: 1, backgroundColor: colors.background };
 export default function RootNavigator() {
   const [initialRoute, setInitialRoute] = useState(null);
 
-  const hideNativeSplash = useCallback(() => {
-    SplashScreen.hideAsync().catch(() => {});
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     const finish = (route) => {
@@ -45,16 +41,16 @@ export default function RootNavigator() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!initialRoute) return undefined;
-    const backup = setTimeout(hideNativeSplash, 450);
-    return () => clearTimeout(backup);
-  }, [initialRoute, hideNativeSplash]);
-
-  if (!initialRoute) return null;
+  if (!initialRoute) {
+    return (
+      <SafeAreaProvider style={rootStyle}>
+        <LoadingScreen />
+      </SafeAreaProvider>
+    );
+  }
 
   return (
-    <SafeAreaProvider style={rootStyle} onLayout={hideNativeSplash}>
+    <SafeAreaProvider style={rootStyle}>
       <NavigationContainer
         ref={navigationRef}
         theme={{
