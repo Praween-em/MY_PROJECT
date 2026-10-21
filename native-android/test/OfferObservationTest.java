@@ -6,7 +6,7 @@ package com.ridio.app;
  * Run: javac -d &lt;out&gt;
  *        src/PartnerTarget.java src/PartnerTargetRegistry.java
  *        src/OfferTextParser.java src/OfferObservation.java
- *        src/OfferObservationSink.java src/AcceptAttemptTracker.java
+ *        src/OfferObservationSink.java
  *        test/OfferObservationTest.java
  *      java -cp &lt;out&gt; com.ridio.app.OfferObservationTest
  */
@@ -141,12 +141,19 @@ public final class OfferObservationTest {
     assertTrue("rich detection", rich.confidence >= 0.80f);
     assertFalse("legacy filter would fail max fare",
         OfferTextParser.legacyFiltersPass(200, 1f, 5f, 0, 150, 0f, 0f, 0f));
+    assertTrue("observation is not an accept verdict", rich.source.equals("NLS"));
+    assertTrue("no accepted field", !hasField("accepted"));
+    assertTrue("no confirmed field", !hasField("confirmed"));
+    assertTrue("no attempt field", !hasField("attemptCount"));
+  }
 
-    AcceptAttemptTracker tracker = new AcceptAttemptTracker();
-    tracker.noteDispatched(8_000L);
-    assertEq("dispatch not confirmed", 0, tracker.confirmedCount());
-    assertFalse("cannot emit confirmed", tracker.canEmitConfirmed());
-    assertTrue("observation has no accept state", rich.source.equals("NLS"));
+  private static boolean hasField(String name) {
+    try {
+      OfferObservation.class.getDeclaredField(name);
+      return true;
+    } catch (NoSuchFieldException e) {
+      return false;
+    }
   }
 
   private static void testSinkIsObservational() {
