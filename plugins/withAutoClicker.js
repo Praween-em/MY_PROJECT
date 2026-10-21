@@ -12,6 +12,8 @@ const APP_PACKAGE = 'com.ridio.app';
 const JAVA_DIR = `app/src/main/java/${APP_PACKAGE.replace(/\./g, '/')}`;
 const JAVA_FILES = [
   'AutoClickerConfig.java',
+  'PartnerTarget.java',
+  'PartnerTargetRegistry.java',
   'AutoClickerService.java',
   'AutoClickerModule.java',
   'AutoClickerPackage.java',
