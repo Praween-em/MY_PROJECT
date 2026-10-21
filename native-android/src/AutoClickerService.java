@@ -3465,6 +3465,8 @@ public class AutoClickerService extends AccessibilityService {
       signalDrop = parseDropKm(notifText);
       signalMark = cardMark(notifText);
     }
+    // Observational only — never gates filters, arming, or accept.
+    OfferObservationSink.publishFromText(packageName, notifText, source, tReceive);
     // Same heads-up again — do not clear cooldown or spray the button we just took.
     if (svc.sameCardHoldActive()
         && !svc.newOfferBreaksCardHold(signalFare, signalPickup, signalDrop, signalMark)) {
