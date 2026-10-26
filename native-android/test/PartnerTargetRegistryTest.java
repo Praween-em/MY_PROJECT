@@ -1,7 +1,8 @@
 package com.ridio.app;
 
 /**
- * Patch 0/1: freeze Rapido/Ola package routing and prove stubs cannot act.
+ * Freeze Rapido/Ola action routing and prove detection-only partners
+ * match Play packages without inheriting clicks.
  *
  * Run: javac -d &lt;out&gt; src/PartnerTarget.java src/PartnerTargetRegistry.java
  *           test/PartnerTargetRegistryTest.java
@@ -20,7 +21,9 @@ public final class PartnerTargetRegistryTest {
     testNeedsShizukuOlaOnly();
     testSelfPackageNeverATarget();
     testUnknownPackagesSkipped();
-    testStubsDisabledEmptyAndCannotAct();
+    testDetectionOnlyPartnersMatchButCannotAct();
+    testCustomerAppsDoNotMatch();
+    testNoPrefixLeakOnDetectionPartners();
     testNullAndEmpty();
 
     System.out.println();
@@ -40,6 +43,8 @@ public final class PartnerTargetRegistryTest {
         PartnerTargetRegistry.isCaptainRapidoPackage("com.rapido.captain"));
     assertTrue("rapido is target", PartnerTargetRegistry.isTargetPackage("com.rapido.rider"));
     assertFalse("rapido not ola", PartnerTargetRegistry.isOlaPackage("com.rapido.rider"));
+    assertFalse("rapido not detection",
+        PartnerTargetRegistry.isDetectionPackage("com.rapido.rider"));
   }
 
   private static void testRapidoPrefixes() {
@@ -61,6 +66,8 @@ public final class PartnerTargetRegistryTest {
     assertTrue("ola is target", PartnerTargetRegistry.isTargetPackage("com.olacabs.oladriver"));
     assertFalse("ola not rapido",
         PartnerTargetRegistry.isCaptainRapidoPackage("com.olacabs.oladriver"));
+    assertFalse("ola not detection",
+        PartnerTargetRegistry.isDetectionPackage("com.olacabs.oladriver"));
   }
 
   private static void testOlaBeforeRapidoOrder() {
@@ -74,8 +81,12 @@ public final class PartnerTargetRegistryTest {
         PartnerTargetRegistry.needsShizukuInject("com.olacabs.oladriver.x"));
     assertFalse("rapido no shizuku",
         PartnerTargetRegistry.needsShizukuInject("com.rapido.rider"));
-    assertFalse("unknown no shizuku",
+    assertFalse("uber no shizuku",
         PartnerTargetRegistry.needsShizukuInject("com.ubercab.driver"));
+    assertFalse("porter no shizuku",
+        PartnerTargetRegistry.needsShizukuInject("com.theporter.android.driverapp"));
+    assertFalse("namma no shizuku",
+        PartnerTargetRegistry.needsShizukuInject("in.juspay.nammayatripartner"));
     assertFalse("null no shizuku", PartnerTargetRegistry.needsShizukuInject(null));
   }
 
@@ -84,6 +95,7 @@ public final class PartnerTargetRegistryTest {
         PartnerTargetRegistry.isCaptainRapidoPackage("com.ridio.app"));
     assertFalse("self not ola", PartnerTargetRegistry.isOlaPackage("com.ridio.app"));
     assertFalse("self not target", PartnerTargetRegistry.isTargetPackage("com.ridio.app"));
+    assertFalse("self not detection", PartnerTargetRegistry.isDetectionPackage("com.ridio.app"));
     assertEq("self no tap", PartnerTargetRegistry.ActionableTap.NONE,
         PartnerTargetRegistry.actionableTap("com.ridio.app"));
     assertTrue("find self null", PartnerTargetRegistry.find("com.ridio.app") == null);
@@ -91,10 +103,8 @@ public final class PartnerTargetRegistryTest {
 
   private static void testUnknownPackagesSkipped() {
     String[] unknown = {
-        "com.ubercab.driver",
-        "com.theporter.android.driverapp",
-        "in.juspay.nammayatripartner",
         "in.juspay.nammayatri",
+        "com.ubercab",
         "com.swiggy.delivery",
         "com.application.zomato",
         "com.android.vending",
@@ -104,25 +114,76 @@ public final class PartnerTargetRegistryTest {
       assertEq("unknown tap " + pkg, PartnerTargetRegistry.ActionableTap.NONE,
           PartnerTargetRegistry.actionableTap(pkg));
       assertFalse("unknown target " + pkg, PartnerTargetRegistry.isTargetPackage(pkg));
+      assertFalse("unknown detection " + pkg, PartnerTargetRegistry.isDetectionPackage(pkg));
       assertFalse("unknown shizuku " + pkg, PartnerTargetRegistry.needsShizukuInject(pkg));
       assertTrue("unknown find " + pkg, PartnerTargetRegistry.find(pkg) == null);
     }
   }
 
-  private static void testStubsDisabledEmptyAndCannotAct() {
-    PartnerTarget uber = PartnerTargetRegistry.byId(PartnerTarget.Id.UBER);
-    PartnerTarget porter = PartnerTargetRegistry.byId(PartnerTarget.Id.PORTER);
-    PartnerTarget namma = PartnerTargetRegistry.byId(PartnerTarget.Id.NAMMA_YATRI);
-    assertTrue("uber stub", uber != null && !uber.enabled && !uber.canAct()
-        && uber.exactPackages.length == 0 && uber.packagePrefixes.length == 0
-        && uber.interaction == PartnerTarget.Interaction.DETECTION_ONLY);
-    assertTrue("porter stub", porter != null && !porter.enabled && !porter.canAct()
-        && porter.exactPackages.length == 0);
-    assertTrue("namma stub", namma != null && !namma.enabled && !namma.canAct()
-        && namma.exactPackages.length == 0);
-    assertFalse("stub shizuku", uber.needsShizuku());
-    assertEq("stub tap none", PartnerTargetRegistry.ActionableTap.NONE,
-        PartnerTargetRegistry.actionableTap("com.ubercab.driver"));
+  private static void testDetectionOnlyPartnersMatchButCannotAct() {
+    assertDetectionPartner(
+        PartnerTarget.Id.UBER,
+        PartnerTargetRegistry.PKG_UBER_DRIVER,
+        "Uber Driver");
+    assertDetectionPartner(
+        PartnerTarget.Id.PORTER,
+        PartnerTargetRegistry.PKG_PORTER_PARTNER,
+        "Porter Partner");
+    assertDetectionPartner(
+        PartnerTarget.Id.NAMMA_YATRI,
+        PartnerTargetRegistry.PKG_NAMMA_YATRI_PARTNER,
+        "Namma Yatri Partner");
+  }
+
+  private static void assertDetectionPartner(
+      PartnerTarget.Id id, String pkg, String displayName) {
+    PartnerTarget t = PartnerTargetRegistry.byId(id);
+    assertTrue(displayName + " registered", t != null);
+    assertTrue(displayName + " enabled", t.enabled);
+    assertTrue(displayName + " detection mode",
+        t.interaction == PartnerTarget.Interaction.DETECTION_ONLY);
+    assertTrue(displayName + " cannot act", !t.canAct());
+    assertTrue(displayName + " no shizuku", !t.needsShizuku());
+    assertTrue(displayName + " exact package",
+        t.exactPackages.length == 1 && pkg.equals(t.exactPackages[0]));
+    assertTrue(displayName + " no prefixes", t.packagePrefixes.length == 0);
+
+    PartnerTarget found = PartnerTargetRegistry.find(pkg);
+    assertTrue(displayName + " find", found != null && found.id == id);
+    assertTrue(displayName + " is detection", PartnerTargetRegistry.isDetectionPackage(pkg));
+    assertFalse(displayName + " not target", PartnerTargetRegistry.isTargetPackage(pkg));
+    assertFalse(displayName + " not ola", PartnerTargetRegistry.isOlaPackage(pkg));
+    assertFalse(displayName + " not rapido",
+        PartnerTargetRegistry.isCaptainRapidoPackage(pkg));
+    assertEq(displayName + " tap none", PartnerTargetRegistry.ActionableTap.NONE,
+        PartnerTargetRegistry.actionableTap(pkg));
+  }
+
+  private static void testCustomerAppsDoNotMatch() {
+    assertTrue("namma customer unknown",
+        PartnerTargetRegistry.find("in.juspay.nammayatri") == null);
+    assertTrue("uber rider unknown",
+        PartnerTargetRegistry.find("com.ubercab") == null);
+    assertFalse("namma customer not detection",
+        PartnerTargetRegistry.isDetectionPackage("in.juspay.nammayatri"));
+  }
+
+  private static void testNoPrefixLeakOnDetectionPartners() {
+    String[] leaked = {
+        "com.ubercab.driver.staging",
+        "com.ubercab.driverapp",
+        "com.theporter.android.driverapp.debug",
+        "com.theporter.android",
+        "in.juspay.nammayatripartner.staging",
+        "in.juspay.nammayatripartnerx"
+    };
+    for (String pkg : leaked) {
+      assertTrue("no prefix find " + pkg, PartnerTargetRegistry.find(pkg) == null);
+      assertFalse("no prefix detection " + pkg,
+          PartnerTargetRegistry.isDetectionPackage(pkg));
+      assertEq("no prefix tap " + pkg, PartnerTargetRegistry.ActionableTap.NONE,
+          PartnerTargetRegistry.actionableTap(pkg));
+    }
   }
 
   private static void testNullAndEmpty() {
@@ -131,6 +192,7 @@ public final class PartnerTargetRegistryTest {
     assertFalse("ola null", PartnerTargetRegistry.isOlaPackage(null));
     assertFalse("rapido null", PartnerTargetRegistry.isCaptainRapidoPackage(null));
     assertFalse("target null", PartnerTargetRegistry.isTargetPackage(null));
+    assertFalse("detection null", PartnerTargetRegistry.isDetectionPackage(null));
     assertEq("tap null", PartnerTargetRegistry.ActionableTap.NONE,
         PartnerTargetRegistry.actionableTap(null));
     assertEq("tap empty", PartnerTargetRegistry.ActionableTap.NONE,

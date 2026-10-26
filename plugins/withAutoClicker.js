@@ -12,11 +12,15 @@ const APP_PACKAGE = 'com.ridio.app';
 const JAVA_DIR = `app/src/main/java/${APP_PACKAGE.replace(/\./g, '/')}`;
 const JAVA_FILES = [
   'AutoClickerConfig.java',
+  'ConfigSnapshot.java',
+  'EngineHeartbeat.java',
   'PartnerTarget.java',
   'PartnerTargetRegistry.java',
   'OfferTextParser.java',
   'OfferObservation.java',
   'OfferObservationSink.java',
+  'AcceptAttemptTracker.java',
+  'ShizukuCapability.java',
   'AutoClickerService.java',
   'AutoClickerModule.java',
   'AutoClickerPackage.java',
@@ -35,7 +39,14 @@ const TARGET_PACKAGES = [
   'com.olacabs.oladriver',
   'com.rapido.rider',
   'com.rapido.captain',
+  'com.ubercab.driver',
+  'com.theporter.android.driverapp',
+  'in.juspay.nammayatripartner',
   'com.android.vending',
+  'com.phonepe.app',
+  'net.one97.paytm',
+  'com.google.android.apps.nbu.paisa.user',
+  'com.whatsapp',
 ];
 
 const ACCESSIBILITY_XML = `<?xml version="1.0" encoding="utf-8"?>
@@ -49,23 +60,15 @@ const ACCESSIBILITY_XML = `<?xml version="1.0" encoding="utf-8"?>
     android:description="@string/accessibility_service_description" />
 `;
 
-// MSG91 invisible OTP / Silent Network Auth uses carrier HTTP endpoints (e.g. Jio).
+// MSG91 Invisible OTP uses carrier HTTP on Jio / Airtel / Vi / BSNL.
+// Official SDK requires cleartext for those operator endpoints.
 const NETWORK_SECURITY_CONFIG_XML = `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">127.0.0.1</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain>
-        <domain includeSubdomains="true">partnerapi.jio.com</domain>
-        <domain includeSubdomains="true">control.msg91.com</domain>
-        <domain includeSubdomains="true">80.in.safr.sekuramobile.com</domain>
-        <domain includeSubdomains="true">safr.sekuramobile.com</domain>
-    </domain-config>
 </network-security-config>
 `;
 
@@ -92,7 +95,7 @@ function writeNetworkSecurityConfig(platformRoot) {
     path.join(xmlDir, 'network_security_config.xml'),
     NETWORK_SECURITY_CONFIG_XML
   );
-  console.log('[withAutoClicker] wrote network_security_config.xml (MSG91/Jio OTP)');
+  console.log('[withAutoClicker] wrote network_security_config.xml (MSG91 OTP all Indian networks)');
 }
 
 function copyNativeSources(projectRoot, platformRoot) {
@@ -362,6 +365,7 @@ function withAutoClickerManifest(config) {
     }
 
     app.$['android:networkSecurityConfig'] = '@xml/network_security_config';
+    app.$['android:usesCleartextTraffic'] = 'true';
 
     return mod;
   });
@@ -664,6 +668,21 @@ function patchReleaseSize(platformRoot) {
       (m) => `${m}\n${UNIVERSAL_APK_BLOCK}`
     );
     console.log('[withAutoClicker] app/build.gradle: universal APK block added');
+  }
+
+  if (!contents.includes('debuggableVariants = []')) {
+    if (contents.includes('// debuggableVariants = ["liteDebug", "prodDebug"]')) {
+      contents = contents.replace(
+        '// debuggableVariants = ["liteDebug", "prodDebug"]',
+        'debuggableVariants = []'
+      );
+    } else {
+      contents = contents.replace(
+        /react\s*\{/,
+        'react {\n    debuggableVariants = []'
+      );
+    }
+    console.log('[withAutoClicker] app/build.gradle: embed JS in debug APK');
   }
 
   if (!contents.includes('abiFilters "armeabi-v7a", "arm64-v8a"')) {

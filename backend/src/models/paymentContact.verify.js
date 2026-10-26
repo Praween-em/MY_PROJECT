@@ -72,5 +72,29 @@ test('limits images to 2 MB', () => {
   if (MAX_IMAGE_BYTES !== 2 * 1024 * 1024) throw new Error(String(MAX_IMAGE_BYTES));
 });
 
+test('accepts a UPI id', () => {
+  const { normalizeUpiId } = require('./paymentContact');
+  if (normalizeUpiId('Rider.Pay@oksbi') !== 'rider.pay@oksbi') {
+    throw new Error('UPI was not normalized');
+  }
+});
+
+test('rejects a UPI id without a bank handle', () => {
+  const { normalizeUpiId } = require('./paymentContact');
+  expectThrow(() => normalizeUpiId('not-a-upi'));
+});
+
+test('accepts a WhatsApp group invite', () => {
+  const { normalizeWhatsAppUrl } = require('./paymentContact');
+  const value = normalizeWhatsAppUrl('https://chat.whatsapp.com/AbCdEf123');
+  if (!value.startsWith('https://chat.whatsapp.com/')) throw new Error(value);
+});
+
+test('turns a 10-digit phone into wa.me', () => {
+  const { normalizeWhatsAppUrl } = require('./paymentContact');
+  const value = normalizeWhatsAppUrl('9876543210');
+  if (value !== 'https://wa.me/919876543210') throw new Error(value);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

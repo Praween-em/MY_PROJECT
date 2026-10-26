@@ -3,13 +3,16 @@ package com.ridio.app;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.DeadObjectException;
 import android.os.IBinder;
+import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.MotionEvent;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -47,10 +50,13 @@ public final class ShizukuInput {
   private static volatile boolean hiddenExempted = false;
   private static volatile Method injectMethod;
   private static volatile Object inputManagerProxy;
-  private static volatile boolean injectUnavailable;
   private static volatile int touchDeviceId = -1;
   /** Bump to cancel an in-flight Rapido coord spray. */
   private static final AtomicInteger sprayEpoch = new AtomicInteger();
+  private static final ShizukuCapability CAPABILITY = new ShizukuCapability();
+  private static volatile boolean listenersBound = false;
+  /** Hang limit for shell {@code waitFor}. Does not change press duration. */
+  private static final long SHELL_WAIT_MS = 2500L;
 
   private ShizukuInput() {}
 
@@ -61,10 +67,74 @@ public final class ShizukuInput {
       if (Build.VERSION.SDK_INT >= 28) {
         exemptHiddenApis();
       }
+      ensureBinderListeners();
       ShizukuProvider.requestBinderForNonProviderProcess(context.getApplicationContext());
+      if (isReady()) {
+        recoverIfBinderAlive();
+      }
     } catch (Throwable t) {
       Log.w(TAG, "attach: " + t.getMessage());
     }
+  }
+
+  /**
+   * Clear a stale inject-unavailable latch when the binder is pingable again.
+   * Does not change tap coordinates or press duration.
+   */
+  public static void recoverIfBinderAlive() {
+    if (!isRunning()) return;
+    int before = CAPABILITY.generation();
+    int gen = CAPABILITY.onAttachWhileReady();
+    if (gen != before) {
+      clearCachedInputManager();
+      Log.i(TAG, "SHIZUKU_RECOVER gen=" + gen
+          + " direct=" + CAPABILITY.directInject()
+          + " binder=" + CAPABILITY.binderHealth());
+    }
+  }
+
+  public static int capabilityGeneration() {
+    return CAPABILITY.generation();
+  }
+
+  public static String capabilityDirectState() {
+    return CAPABILITY.directInject().name();
+  }
+
+  private static void ensureBinderListeners() {
+    if (listenersBound) return;
+    synchronized (ShizukuInput.class) {
+      if (listenersBound) return;
+      try {
+        Shizuku.addBinderReceivedListenerSticky(() -> {
+          resetAfterBinderReceived();
+          Log.i(TAG, "SHIZUKU_BINDER_RECEIVED gen=" + CAPABILITY.generation());
+        });
+        Shizuku.addBinderDeadListener(() -> {
+          resetAfterBinderDeath();
+          Log.w(TAG, "SHIZUKU_BINDER_DEAD gen=" + CAPABILITY.generation());
+        });
+        listenersBound = true;
+      } catch (Throwable t) {
+        Log.w(TAG, "listeners: " + t.getMessage());
+      }
+    }
+  }
+
+  private static void resetAfterBinderReceived() {
+    CAPABILITY.onBinderReceived();
+    clearCachedInputManager();
+  }
+
+  private static void resetAfterBinderDeath() {
+    CAPABILITY.onBinderDead();
+    clearCachedInputManager();
+    sprayEpoch.incrementAndGet();
+  }
+
+  private static void clearCachedInputManager() {
+    inputManagerProxy = null;
+    injectMethod = null;
   }
 
   public static boolean isInstalled(Context context) {
@@ -197,8 +267,13 @@ public final class ShizukuInput {
   }
 
   private static boolean runOnInjectThread(InjectWork work) {
+    if (CAPABILITY.binderHealth() == ShizukuCapability.BinderHealth.DEAD) {
+      return false;
+    }
+    final int startedGen = CAPABILITY.generation();
     if (Thread.currentThread().getName().equals("shizuku-inject")) {
       try {
+        if (CAPABILITY.shouldAbortInFlight(startedGen)) return false;
         return work.run();
       } catch (Throwable t) {
         Log.w(TAG, "inject work: " + t.getMessage());
@@ -209,7 +284,9 @@ public final class ShizukuInput {
     final CountDownLatch latch = new CountDownLatch(1);
     EXEC.execute(() -> {
       try {
-        out[0] = work.run();
+        if (!CAPABILITY.shouldAbortInFlight(startedGen)) {
+          out[0] = work.run();
+        }
       } catch (Throwable t) {
         Log.w(TAG, "inject work: " + t.getMessage());
       } finally {
@@ -222,6 +299,7 @@ public final class ShizukuInput {
       Thread.currentThread().interrupt();
       return false;
     }
+    if (CAPABILITY.shouldAbortInFlight(startedGen)) return false;
     return out[0];
   }
 
@@ -321,8 +399,22 @@ public final class ShizukuInput {
   }
 
   private static boolean invokeInject(Object im, Method inject, MotionEvent event) throws Exception {
-    Object r = inject.invoke(im, event, INJECT_ASYNC);
-    return r instanceof Boolean ? (Boolean) r : true;
+    try {
+      Object r = inject.invoke(im, event, INJECT_ASYNC);
+      return r instanceof Boolean ? (Boolean) r : true;
+    } catch (InvocationTargetException e) {
+      Throwable cause = e.getCause();
+      if (isBinderDeath(cause)) {
+        resetAfterBinderDeath();
+        Log.w(TAG, "SHIZUKU_DEAD_OBJECT");
+        return false;
+      }
+      throw e;
+    }
+  }
+
+  private static boolean isBinderDeath(Throwable t) {
+    return t instanceof DeadObjectException || t instanceof RemoteException;
   }
 
   private static MotionEvent obtain(long downTime, long eventTime, int action, int x, int y) {
@@ -373,16 +465,16 @@ public final class ShizukuInput {
   }
 
   private static Object inputManager() {
-    if (injectUnavailable) return null;
+    if (!CAPABILITY.shouldAttemptDirectInject()) return null;
     if (inputManagerProxy != null && injectMethod != null) return inputManagerProxy;
     synchronized (ShizukuInput.class) {
-      if (injectUnavailable) return null;
+      if (!CAPABILITY.shouldAttemptDirectInject()) return null;
       if (inputManagerProxy != null && injectMethod != null) return inputManagerProxy;
       try {
         exemptHiddenApis();
         IBinder raw = SystemServiceHelper.getSystemService(Context.INPUT_SERVICE);
         if (raw == null) {
-          injectUnavailable = true;
+          CAPABILITY.onDirectUnavailable();
           return null;
         }
         IBinder wrapped = new ShizukuBinderWrapper(raw);
@@ -391,18 +483,24 @@ public final class ShizukuInput {
         asInterface.setAccessible(true);
         Object proxy = asInterface.invoke(null, wrapped);
         if (proxy == null) {
-          injectUnavailable = true;
+          CAPABILITY.onDirectUnavailable();
           return null;
         }
         Method inject = proxy.getClass().getMethod("injectInputEvent", InputEvent.class, int.class);
         inject.setAccessible(true);
         inputManagerProxy = proxy;
         injectMethod = inject;
-        Log.i(TAG, "IInputManager ready");
+        CAPABILITY.onDirectReady();
+        Log.i(TAG, "IInputManager ready gen=" + CAPABILITY.generation());
         return proxy;
       } catch (Throwable t) {
         Log.w(TAG, "IInputManager unavailable: " + t.getMessage());
-        injectUnavailable = true;
+        clearCachedInputManager();
+        if (isBinderDeath(t) || isBinderDeath(t.getCause())) {
+          resetAfterBinderDeath();
+        } else {
+          CAPABILITY.onDirectUnavailable();
+        }
         return null;
       }
     }
@@ -450,8 +548,11 @@ public final class ShizukuInput {
       }
       p = (java.lang.Process) m.invoke(null, cmd, null, null);
       if (p == null) return false;
-      int code = p.waitFor();
-      return code == 0;
+      if (!waitForProcess(p, SHELL_WAIT_MS)) {
+        Log.w(TAG, "shell timeout — destroy, later inject still allowed");
+        return false;
+      }
+      return p.exitValue() == 0;
     } catch (Throwable t) {
       Log.w(TAG, "shell fail: " + t.getMessage());
       return false;
@@ -459,6 +560,24 @@ public final class ShizukuInput {
       if (p != null) {
         try { p.destroy(); } catch (Exception ignored) {}
       }
+    }
+  }
+
+  /** Bounded wait so a hung shell cannot occupy the inject thread forever. */
+  private static boolean waitForProcess(java.lang.Process p, long timeoutMs) {
+    if (p == null) return false;
+    try {
+      if (Build.VERSION.SDK_INT >= 26) {
+        if (p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) return true;
+        try { p.destroy(); } catch (Exception ignored) {}
+        return false;
+      }
+      p.waitFor();
+      return true;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      try { p.destroy(); } catch (Exception ignored) {}
+      return false;
     }
   }
 }

@@ -1,8 +1,9 @@
 package com.ridio.app;
 
 /**
- * One partner-app target. Patch 1: identity + verified packages + whether
- * this target may act. Stubs stay disabled with empty package lists.
+ * One partner-app target. Identity + verified packages + whether this
+ * target may act. Detection-only partners match exact Play packages and
+ * never authorize a click or Shizuku inject.
  */
 public final class PartnerTarget {
 
@@ -31,7 +32,7 @@ public final class PartnerTarget {
   public final Interaction interaction;
   /** Exact package ids verified in this repo. */
   public final String[] exactPackages;
-  /** Existing prefix rules (Ola / Rapido only). Empty for stubs. */
+  /** Existing prefix rules (Ola / Rapido only). Empty for detection-only. */
   public final String[] packagePrefixes;
 
   PartnerTarget(

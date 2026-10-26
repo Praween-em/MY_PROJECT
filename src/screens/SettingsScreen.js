@@ -70,8 +70,18 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.group}>
           <SettingRow
             icon={<Ionicons name="accessibility-outline" size={18} color={colors.purpleBright} />} title="Accessibility Service"
-            sub={permStatus.accessibility ? 'Enabled' : 'Not enabled — Tap to fix'}
-            subColor={permStatus.accessibility ? colors.onGreen : colors.offRed}
+            sub={
+              !permStatus.accessibility
+                ? 'Not enabled — Tap to fix'
+                : permStatus.accessibilityRunning === false
+                  ? 'Enabled — leave this ON'
+                  : 'Enabled'
+            }
+            subColor={
+              permStatus.accessibility && permStatus.accessibilityRunning !== false
+                ? colors.onGreen
+                : colors.offRed
+            }
             onPress={() => navigateRoot(navigation, 'PermissionsSetup')}
           />
           <SettingRow

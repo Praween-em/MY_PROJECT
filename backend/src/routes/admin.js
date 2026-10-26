@@ -32,7 +32,7 @@ const { computeSubscriptionEnd } = require('../models/user');
 const { listSocialLinks, upsertSocialLinks } = require('../models/socials');
 const {
   getPaymentContactConfig,
-  updateTelegramUrl,
+  updatePaymentContact,
   savePaymentImage,
   removePaymentImage,
 } = require('../models/paymentContact');
@@ -280,9 +280,16 @@ router.get('/payment-contact', async (_req, res) => {
 
 router.put('/payment-contact', async (req, res) => {
   try {
-    const config = await updateTelegramUrl(req.body?.telegramUrl);
-    await logAdminAction(req.admin.id, 'payment-contact.telegram.update', null, {
-      configured: !!config.telegramUrl,
+    const config = await updatePaymentContact({
+      telegramUrl: req.body?.telegramUrl,
+      upiId: req.body?.upiId,
+      payeeName: req.body?.payeeName,
+      whatsappGroupUrl: req.body?.whatsappGroupUrl,
+    });
+    await logAdminAction(req.admin.id, 'payment-contact.update', null, {
+      telegram: !!config.telegramUrl,
+      upi: !!config.upiId,
+      whatsapp: !!config.whatsappGroupUrl,
     });
     res.json({ success: true, config });
   } catch (err) {

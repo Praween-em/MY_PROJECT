@@ -43,6 +43,21 @@ const DEFAULT_SOCIAL_LINKS = {
   telegram: '',
 };
 
+function nativeStatusCopy(runtimeStatus) {
+  const reason = runtimeStatus?.blockingReason;
+  if (!reason) return null;
+  if (reason === 'ACCESSIBILITY_NOT_RUNNING') {
+    return 'Ride engine is warming up. Leave Accessibility ON — do not turn it off.';
+  }
+  return `Native status: ${reason.replace(/_/g, ' ').toLowerCase()}`;
+}
+
+function isAutoAcceptSwitchOn(status) {
+  if (!status) return false;
+  if (status.state === 'RUNNING' || status.state === 'DEGRADED') return true;
+  return !!status.requestedEnabled && status.blockingReason === 'ACCESSIBILITY_NOT_RUNNING';
+}
+
 const openSocialLink = async (url) => {
   if (!url) {
     Alert.alert('Link unavailable', 'This social link is not configured yet.');
@@ -59,6 +74,9 @@ const DEFAULT_PACKAGES = [
   'com.olacabs.oladriver',
   'com.rapido.rider',
   'com.rapido.captain',
+  'com.ubercab.driver',
+  'com.theporter.android.driverapp',
+  'in.juspay.nammayatripartner',
 ];
 
 export default function HomeScreen({ navigation }) {
@@ -161,7 +179,7 @@ export default function HomeScreen({ navigation }) {
       if (isNativeAvailable()) {
         const status = await getAutomationStatus();
         setRuntimeStatus(status);
-        setEnabled(status?.state === 'RUNNING' || status?.state === 'DEGRADED');
+        setEnabled(isAutoAcceptSwitchOn(status));
       }
     } catch (err) {
       console.warn('Refresh error:', err);
@@ -210,8 +228,7 @@ export default function HomeScreen({ navigation }) {
           setLastLatency(status.lastLatencyMs);
         }
         if (subLoading) return;
-        const wantOn = (status?.state === 'RUNNING' || status?.state === 'DEGRADED')
-          && featuresAllowed;
+        const wantOn = isAutoAcceptSwitchOn(status) && featuresAllowed;
         setEnabled(wantOn);
       } catch {
         // ignore
@@ -227,7 +244,7 @@ export default function HomeScreen({ navigation }) {
     updateEntitlement(nativeEntitlement())
       .then((status) => {
         setRuntimeStatus(status);
-        setEnabled(status?.state === 'RUNNING' || status?.state === 'DEGRADED');
+        setEnabled(isAutoAcceptSwitchOn(status));
       })
       .catch(() => {});
   }, [subLoading, isActive, deviceAllowed, subscriptionEnd]);
@@ -239,7 +256,7 @@ export default function HomeScreen({ navigation }) {
     const unsubscribe = onAutomationStatusChanged((status) => {
       if (!status) return;
       setRuntimeStatus(status);
-      setEnabled(status.state === 'RUNNING' || status.state === 'DEGRADED');
+      setEnabled(isAutoAcceptSwitchOn(status));
       if (typeof status.acceptedCount === 'number') setRidesAccepted(status.acceptedCount);
       if (typeof status.lastLatencyMs === 'number' && status.lastLatencyMs >= 0) {
         setLastLatency(status.lastLatencyMs);
@@ -284,7 +301,7 @@ export default function HomeScreen({ navigation }) {
           .then((status) => {
             if (cancelled || !status) return;
             setRuntimeStatus(status);
-            setEnabled(status.state === 'RUNNING' || status.state === 'DEGRADED');
+            setEnabled(isAutoAcceptSwitchOn(status));
             if (typeof status.acceptedCount === 'number') {
               setRidesAccepted(status.acceptedCount);
             }
@@ -414,7 +431,7 @@ export default function HomeScreen({ navigation }) {
         await persistLocalSettings(filterRecord(parseFilters()));
         const status = await applyAutomationConfig(filterPayload(value));
         setRuntimeStatus(status);
-        const running = status?.state === 'RUNNING' || status?.state === 'DEGRADED';
+        const running = isAutoAcceptSwitchOn(status);
         setEnabled(running);
         if (value && !running) {
           Alert.alert('Auto-accept not started', status?.blockingReason || 'Native engine is not ready.');
@@ -437,11 +454,11 @@ export default function HomeScreen({ navigation }) {
     const f = parseFilters();
     setSaving(true);
     try {
-      const nextEnabled = featuresAllowed ? enabled : false;
+      const nextEnabled = runtimeStatus?.requestedEnabled ?? enabled;
       await persistLocalSettings(filterRecord(f));
       const status = await applyAutomationConfig(filterPayload(nextEnabled));
       setRuntimeStatus(status);
-      setEnabled(status?.state === 'RUNNING' || status?.state === 'DEGRADED');
+      setEnabled(isAutoAcceptSwitchOn(status));
       setMinPriceState(String(f.fare));
       setMaxPriceState(String(f.maxPrice));
       setMinPickupState(String(f.minPickup));
@@ -468,6 +485,8 @@ export default function HomeScreen({ navigation }) {
       pulseAnim.setValue(1);
     }
   }, [enabled]);
+
+  const statusLine = nativeStatusCopy(runtimeStatus);
 
   return (
     <Screen edges={['top']}>
@@ -511,9 +530,9 @@ export default function HomeScreen({ navigation }) {
                   ? 'Monitoring Rapido and Ola ride signals'
                   : 'Turn on when you are ready to receive rides'}
               </Text>
-              {!!runtimeStatus?.blockingReason && (
+              {!!statusLine && (
                 <Text style={styles.powerSub}>
-                  Native status: {runtimeStatus.blockingReason.replace(/_/g, ' ').toLowerCase()}
+                  {statusLine}
                 </Text>
               )}
             </View>

@@ -65,9 +65,57 @@ function sniffImageMime(buffer) {
   return null;
 }
 
+function normalizeUpiId(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (!/^[a-z0-9._-]{2,64}@[a-z]{2,64}$/.test(raw)) {
+    const err = new Error('Enter a UPI ID like name@oksbi or name@paytm');
+    err.status = 400;
+    throw err;
+  }
+  return raw;
+}
+
+function normalizePayeeName(value) {
+  const raw = String(value || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+  return raw || 'AG Rider';
+}
+
+function normalizeWhatsAppUrl(value) {
+  let raw = String(value || '').trim();
+  if (!raw) return '';
+  const digits = raw.replace(/[^\d]/g, '');
+  if (/^\+?\d[\d\s-]{8,18}$/.test(raw) && digits.length >= 10 && digits.length <= 15) {
+    const phone = digits.length === 10 ? `91${digits}` : digits;
+    return `https://wa.me/${phone}`;
+  }
+  if (!/^https?:\/\//i.test(raw)) raw = `https://${raw.replace(/^\/+/, '')}`;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    const err = new Error('Enter a WhatsApp group link, wa.me link, or phone number');
+    err.status = 400;
+    throw err;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  const allowed = ['chat.whatsapp.com', 'wa.me', 'api.whatsapp.com', 'whatsapp.com'];
+  if (!allowed.includes(host)) {
+    const err = new Error('WhatsApp link must be chat.whatsapp.com or wa.me');
+    err.status = 400;
+    throw err;
+  }
+  parsed.protocol = 'https:';
+  parsed.hostname = host;
+  return parsed.toString();
+}
+
 function mapConfig(row) {
   return {
     telegramUrl: row?.telegram_url || '',
+    upiId: row?.upi_id || '',
+    payeeName: row?.payee_name || 'AG Rider',
+    whatsappGroupUrl: row?.whatsapp_group_url || '',
     hasImage: !!row?.has_image,
     imageUpdatedAt: row?.image_updated_at || null,
     updatedAt: row?.updated_at || null,
@@ -77,6 +125,9 @@ function mapConfig(row) {
 async function getPaymentContactConfig() {
   const { rows } = await query(
     `SELECT telegram_url,
+            upi_id,
+            payee_name,
+            whatsapp_group_url,
             image_data IS NOT NULL AS has_image,
             image_updated_at,
             updated_at
@@ -86,19 +137,44 @@ async function getPaymentContactConfig() {
   return mapConfig(rows[0]);
 }
 
+const PAYMENT_RETURNING = `telegram_url,
+            upi_id,
+            payee_name,
+            whatsapp_group_url,
+            image_data IS NOT NULL AS has_image,
+            image_updated_at,
+            updated_at`;
+
 async function updateTelegramUrl(value) {
-  const telegramUrl = normalizeTelegramUrl(value);
+  return updatePaymentContact({ telegramUrl: value });
+}
+
+async function updatePaymentContact(input = {}) {
+  const current = await getPaymentContactConfig();
+  const telegramUrl = input.telegramUrl !== undefined
+    ? normalizeTelegramUrl(input.telegramUrl)
+    : current.telegramUrl;
+  const upiId = input.upiId !== undefined
+    ? normalizeUpiId(input.upiId)
+    : current.upiId;
+  const payeeName = input.payeeName !== undefined
+    ? normalizePayeeName(input.payeeName)
+    : (current.payeeName || 'AG Rider');
+  const whatsappGroupUrl = input.whatsappGroupUrl !== undefined
+    ? normalizeWhatsAppUrl(input.whatsappGroupUrl)
+    : current.whatsappGroupUrl;
   const { rows } = await query(
-    `INSERT INTO payment_contact_config (id, telegram_url, updated_at)
-     VALUES (1, $1, NOW())
+    `INSERT INTO payment_contact_config
+       (id, telegram_url, upi_id, payee_name, whatsapp_group_url, updated_at)
+     VALUES (1, $1, $2, $3, $4, NOW())
      ON CONFLICT (id) DO UPDATE SET
        telegram_url = EXCLUDED.telegram_url,
+       upi_id = EXCLUDED.upi_id,
+       payee_name = EXCLUDED.payee_name,
+       whatsapp_group_url = EXCLUDED.whatsapp_group_url,
        updated_at = NOW()
-     RETURNING telegram_url,
-               image_data IS NOT NULL AS has_image,
-               image_updated_at,
-               updated_at`,
-    [telegramUrl]
+     RETURNING ${PAYMENT_RETURNING}`,
+    [telegramUrl, upiId, payeeName, whatsappGroupUrl]
   );
   return mapConfig(rows[0]);
 }
@@ -131,10 +207,7 @@ async function savePaymentImage(buffer, mime) {
        image_data = EXCLUDED.image_data,
        image_updated_at = NOW(),
        updated_at = NOW()
-     RETURNING telegram_url,
-               image_data IS NOT NULL AS has_image,
-               image_updated_at,
-               updated_at`,
+     RETURNING ${PAYMENT_RETURNING}`,
     [mime, buffer]
   );
   return mapConfig(rows[0]);
@@ -164,6 +237,9 @@ async function removePaymentImage() {
             updated_at = NOW()
       WHERE id = 1
       RETURNING telegram_url,
+                upi_id,
+                payee_name,
+                whatsapp_group_url,
                 FALSE AS has_image,
                 image_updated_at,
                 updated_at`
@@ -175,8 +251,12 @@ module.exports = {
   MAX_IMAGE_BYTES,
   ALLOWED_IMAGE_TYPES,
   normalizeTelegramUrl,
+  normalizeUpiId,
+  normalizePayeeName,
+  normalizeWhatsAppUrl,
   getPaymentContactConfig,
   updateTelegramUrl,
+  updatePaymentContact,
   savePaymentImage,
   getPaymentImage,
   removePaymentImage,

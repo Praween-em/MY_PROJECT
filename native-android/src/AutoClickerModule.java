@@ -340,7 +340,7 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void setServiceEnabled(boolean enabled, Promise promise) {
     try {
-      boolean prev = AutoClickerConfig.peekEnabled();
+      boolean prev = AutoClickerConfig.isRequestedEnabled();
       AutoClickerConfig.setEnabled(enabled);
       broadcastConfigChanged(getReactApplicationContext());
       AutoClickerService.onConfigChanged();
@@ -442,6 +442,7 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       long endMs = entitlement.hasKey("subscriptionEndMs") && !entitlement.isNull("subscriptionEndMs")
           ? Math.max(0L, (long) entitlement.getDouble("subscriptionEndMs")) : 0L;
       AutoClickerConfig.applyEntitlementSnapshot(active, deviceAllowed, endMs);
+      broadcastConfigChanged(getReactApplicationContext());
       AutoClickerService.onConfigChanged();
       emitRuntimeStatus(getReactApplicationContext(), "entitlement-updated");
       promise.resolve(buildRuntimeStatus(getReactApplicationContext(), null));
@@ -465,13 +466,23 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     AutoClickerConfig.applyEntitlementSnapshot(active, deviceAllowed, endMs);
   }
 
-  /** Push master/nuclear into `:engine` — required because a11y sInstance lives there. */
+  /** Push a complete snapshot into `:engine` — sInstance is null in the UI process. */
   static void broadcastConfigChanged(Context ctx) {
     if (ctx == null) return;
     try {
       Intent i = new Intent(ACTION_CONFIG_CHANGED);
       i.setPackage(ctx.getPackageName());
-      i.putExtra("enabled", AutoClickerConfig.peekEnabled());
+      boolean requested = AutoClickerConfig.isRequestedEnabled();
+      boolean entitled = AutoClickerConfig.isEntitled();
+      long revision = AutoClickerConfig.getConfigRevision();
+      i.putExtra(ConfigSnapshot.EXTRA_REQUESTED_ENABLED, requested);
+      i.putExtra(ConfigSnapshot.EXTRA_ENTITLEMENT_KNOWN, AutoClickerConfig.isEntitlementKnown());
+      i.putExtra(ConfigSnapshot.EXTRA_ENTITLEMENT_ACTIVE, AutoClickerConfig.isEntitlementActive());
+      i.putExtra(ConfigSnapshot.EXTRA_ENTITLEMENT_DEVICE_ALLOWED, AutoClickerConfig.isDeviceAllowed());
+      i.putExtra(ConfigSnapshot.EXTRA_ENTITLEMENT_END_MS, AutoClickerConfig.getEntitlementEndMs());
+      i.putExtra(ConfigSnapshot.EXTRA_CONFIG_REVISION, revision);
+      // Legacy extra now carries requested intent, never effective enablement.
+      i.putExtra("enabled", requested);
       i.putExtra("nuclear_mode", AutoClickerConfig.peekNuclearMode());
       i.putExtra("min_price", AutoClickerConfig.getMinPrice());
       i.putExtra("max_fare", AutoClickerConfig.getMaxFare());
@@ -479,8 +490,10 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       i.putExtra("max_pickup", AutoClickerConfig.getMaxPickup());
       i.putExtra("max_drop", AutoClickerConfig.getMaxDrop());
       ctx.sendBroadcast(i);
-      android.util.Log.i(MODULE_NAME, "CONFIG_BROADCAST enabled="
-          + AutoClickerConfig.peekEnabled()
+      android.util.Log.i(MODULE_NAME, "CONFIG_BROADCAST rev=" + revision
+          + " requested=" + requested
+          + " entitled=" + entitled
+          + " effective=" + (requested && entitled)
           + " nuclear=" + AutoClickerConfig.peekNuclearMode()
           + " min=" + AutoClickerConfig.getMinPrice()
           + " maxPickup=" + AutoClickerConfig.getMaxPickup());
@@ -567,7 +580,11 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       map.putInt("acceptedCount", AutoClickerConfig.getAcceptedCount());
       map.putInt("lastLatencyMs", AutoClickerConfig.getLastLatencyMs());
       broadcastConfigChanged(getReactApplicationContext());
-      map.putBoolean("accessibilityEnabled", isOurAccessibilityServiceEnabled(getReactApplicationContext()));
+      boolean a11yOn = isOurAccessibilityServiceEnabled(getReactApplicationContext());
+      boolean engineLive = AutoClickerConfig.isEngineHeartbeatFresh();
+      map.putBoolean("accessibilityEnabled", a11yOn);
+      map.putBoolean("engineHeartbeatFresh", engineLive);
+      map.putBoolean("serviceConnected", a11yOn && engineLive);
       map.putBoolean(
           "notificationListenerEnabled",
           isOurNotificationListenerEnabled(getReactApplicationContext())
@@ -612,8 +629,10 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       boolean nlsOk = isOurNotificationListenerEnabled(ctx);
       boolean shizukuReady = ShizukuInput.isReady();
       WritableMap map = Arguments.createMap();
+      boolean engineLive = AutoClickerConfig.isEngineHeartbeatFresh();
       map.putBoolean("accessibilityEnabled", a11y);
-      map.putBoolean("serviceConnected", a11y);
+      map.putBoolean("engineHeartbeatFresh", engineLive);
+      map.putBoolean("serviceConnected", a11y && engineLive);
       map.putBoolean("masterEnabled", master);
       map.putBoolean("batteryOptimizationOk", batteryOk);
       map.putBoolean("notificationListenerEnabled", nlsOk);
@@ -665,12 +684,17 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     }
   }
 
-  /** The one status model consumed by React; native is its source of truth. */
+  /**
+   * Status for React. Computed in this process from the local snapshot.
+   * serviceConnected requires Settings enablement AND a fresh :engine heartbeat.
+   */
   private static WritableMap buildRuntimeStatus(Context context, String reason) {
     WritableMap map = Arguments.createMap();
     AutoClickerConfig.ensureInit(context);
     boolean requested = AutoClickerConfig.isRequestedEnabled();
     boolean accessibility = isOurAccessibilityServiceEnabled(context);
+    boolean engineLive = AutoClickerConfig.isEngineHeartbeatFresh();
+    boolean serviceConnected = accessibility && engineLive;
     boolean notifications = isOurNotificationListenerEnabled(context);
     boolean shizuku = ShizukuInput.isReady();
     boolean batteryOk = false;
@@ -689,10 +713,12 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
       state = "BLOCKED";
       blocking = "ACCESSIBILITY_REQUIRED";
     } else if (requested) {
-      // Notification access and battery exemption are deliberately DEGRADED,
-      // not blockers: accessibility can still accept offers without them.
-      state = (!notifications || !batteryOk) ? "DEGRADED" : "RUNNING";
-      if (!notifications) blocking = "NOTIFICATION_ACCESS_RECOMMENDED";
+      // Heartbeat miss is DEGRADED, never BLOCKED. UI process prefs often
+      // cannot see :engine writes, and BLOCKED was flipping Auto-accept off
+      // on every screen change.
+      state = (!engineLive || !notifications || !batteryOk) ? "DEGRADED" : "RUNNING";
+      if (!engineLive) blocking = "ACCESSIBILITY_NOT_RUNNING";
+      else if (!notifications) blocking = "NOTIFICATION_ACCESS_RECOMMENDED";
       else if (!batteryOk) blocking = "BATTERY_OPTIMIZATION_RECOMMENDED";
     }
 
@@ -700,13 +726,19 @@ public class AutoClickerModule extends ReactContextBaseJavaModule {
     map.putString("blockingReason", blocking);
     map.putString("reason", reason != null ? reason : "");
     map.putBoolean("requestedEnabled", requested);
+    map.putBoolean("entitlementValid", AutoClickerConfig.isEntitled());
+    map.putBoolean("entitlementKnown", AutoClickerConfig.isEntitlementKnown());
+    map.putBoolean("deviceAllowed", AutoClickerConfig.isDeviceAllowed());
+    map.putBoolean("effectiveEnabled", AutoClickerConfig.isEnabled());
     map.putBoolean("enabled", "RUNNING".equals(state) || "DEGRADED".equals(state));
     map.putBoolean("accessibilityEnabled", accessibility);
+    map.putBoolean("engineHeartbeatFresh", engineLive);
     map.putBoolean("notificationListenerEnabled", notifications);
     map.putBoolean("batteryOptimizationOk", batteryOk);
     map.putBoolean("shizukuReady", shizuku);
-    map.putBoolean("serviceConnected", accessibility);
+    map.putBoolean("serviceConnected", serviceConnected);
     map.putDouble("configRevision", (double) AutoClickerConfig.getConfigRevision());
+    map.putDouble("appliedRevision", (double) AutoClickerConfig.getAppliedRevision());
     map.putInt("minPrice", AutoClickerConfig.getMinPrice());
     map.putInt("maxPrice", AutoClickerConfig.getMaxFare());
     map.putDouble("minPickup", AutoClickerConfig.getMinPickup());

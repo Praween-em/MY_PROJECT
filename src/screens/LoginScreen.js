@@ -9,7 +9,7 @@ import { colors } from '../theme/colors';
 import { saveUser } from '../utils/storage';
 import { replaceRoot } from '../navigation/rootNavigation';
 import { verifyOtpWithServer } from '../services/api';
-import { initOtpWidget, isOtpConfigured, sendOtp, retryOtp, verifyOtp } from '../services/otp';
+import { initOtpWidget, isOtpConfigured, sendOtp, retryOtp, verifyOtp, OTP_CHANNEL_SMS } from '../services/otp';
 
 const INPUT_TEXT = colors.icy;
 const INPUT_PLACEHOLDER = colors.icyMuted;
@@ -61,11 +61,21 @@ export default function LoginScreen({ navigation }) {
     }
     setResending(true);
     try {
-      const { reqId: id } = await retryOtp(reqId);
+      const { reqId: id } = await retryOtp(reqId, OTP_CHANNEL_SMS);
       setReqId(id);
-      Alert.alert('OTP resent', 'Check your SMS for a new code.');
+      Alert.alert('OTP resent', 'Check your SMS for a new code. It works on Jio, Airtel, Vi and BSNL.');
     } catch (err) {
-      Alert.alert('Resend failed', err.message || 'Try again');
+      try {
+        const result = await sendOtp(phone);
+        if (result.alreadyVerified && result.accessToken) {
+          await finishLogin(result.accessToken);
+          return;
+        }
+        if (result.reqId) setReqId(result.reqId);
+        Alert.alert('OTP resent', 'Check your SMS for a new code.');
+      } catch {
+        Alert.alert('Resend failed', err.message || 'Try again');
+      }
     } finally {
       setResending(false);
     }
@@ -149,7 +159,7 @@ export default function LoginScreen({ navigation }) {
             {step === 'phone' ? (
               <>
                 <Text style={styles.cardTitle}>Sign in</Text>
-                <Text style={styles.cardSub}>Enter your mobile number to get a one-time SMS code.</Text>
+                <Text style={styles.cardSub}>Enter your 10-digit Indian mobile number. We send an SMS OTP on Jio, Airtel, Vi, BSNL and other Indian networks.</Text>
 
                 <Text style={styles.fieldLabel}>Mobile number</Text>
                 <View style={styles.phoneRow}>

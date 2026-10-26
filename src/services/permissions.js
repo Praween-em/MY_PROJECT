@@ -158,15 +158,24 @@ export async function getAllPermissionsStatus() {
     installed: false, running: false, permission: false, ready: false, state: 'missing',
   };
   try {
-    const [accessibility, notificationListener, battery, overlay, shizuku] = await Promise.all([
-      isAccessibilityEnabled().catch(() => false),
-      isNotificationListenerEnabled().catch(() => false),
-      isBatteryOptimizationIgnored().catch(() => false),
-      isOverlayPermissionGranted().catch(() => false),
-      getShizukuStatus().catch(() => fallbackShizuku),
-    ]);
+    const healthFallback = { serviceConnected: undefined };
+    const [accessibility, notificationListener, battery, overlay, shizuku, health] =
+      await Promise.all([
+        isAccessibilityEnabled().catch(() => false),
+        isNotificationListenerEnabled().catch(() => false),
+        isBatteryOptimizationIgnored().catch(() => false),
+        isOverlayPermissionGranted().catch(() => false),
+        getShizukuStatus().catch(() => fallbackShizuku),
+        AutoClickerModule.getServiceHealth
+          ? AutoClickerModule.getServiceHealth().catch(() => healthFallback)
+          : Promise.resolve(healthFallback),
+      ]);
+    const accessibilityRunning = typeof health?.serviceConnected === 'boolean'
+      ? !!health.serviceConnected
+      : !!accessibility;
     return {
       accessibility: !!accessibility,
+      accessibilityRunning,
       notificationListener: !!notificationListener,
       battery: !!battery,
       overlay: !!overlay,
@@ -179,6 +188,7 @@ export async function getAllPermissionsStatus() {
   } catch {
     return {
       accessibility: false,
+      accessibilityRunning: false,
       notificationListener: false,
       battery: false,
       overlay: false,

@@ -3,10 +3,17 @@ package com.ridio.app;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.SystemClock;
+import android.util.AtomicFile;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.WindowManager;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
@@ -23,6 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class AutoClickerConfig {
 
+  private static final String TAG = "AutoClickerConfig";
   private static final String PREFS = "superridex_race";
   private static final String KEY_CONFIG_REVISION = "config_revision";
   private static final String KEY_MONITORED_PACKAGES = "monitored_packages";
@@ -30,6 +38,18 @@ public final class AutoClickerConfig {
   private static final String KEY_ENTITLEMENT_ACTIVE = "entitlement_active";
   private static final String KEY_ENTITLEMENT_DEVICE_ALLOWED = "entitlement_device_allowed";
   private static final String KEY_ENTITLEMENT_END_MS = "entitlement_end_ms";
+  private static final String KEY_SNAPSHOT_WRITTEN_MS = "snapshot_written_ms";
+  /** :engine elapsedRealtime heartbeat — UI process uses this, not sInstance. */
+  private static final String KEY_ENGINE_HEARTBEAT_ELAPSED = "engine_heartbeat_elapsed";
+  private static final AtomicLong lastHeartbeatWriteElapsed = new AtomicLong(0L);
+  private static volatile long lastHeartbeatFileWriteElapsed = 0L;
+  private static final long HEARTBEAT_WRITE_MIN_GAP_MS = 400L;
+  /** UI reads the sidecar — do not sync-write every watchdog tick (ANR on slow storage). */
+  private static final long HEARTBEAT_FILE_WRITE_MIN_GAP_MS = 2000L;
+  private static final String SNAPSHOT_FILE = "config_snapshot";
+  private static final String HEARTBEAT_FILE = "engine_heartbeat";
+  /** Sidecar / disk refresh — not a busy loop. */
+  private static final long REVISION_REFRESH_MIN_GAP_MS = 400L;
 
   /** Mode 0 = price filter; else = distance filter (MeClicker). */
   public static final int MODE_PRICE = 0;
@@ -59,6 +79,11 @@ public final class AutoClickerConfig {
   private static final AtomicBoolean entitlementActive = new AtomicBoolean(true);
   private static final AtomicBoolean entitlementDeviceAllowed = new AtomicBoolean(true);
   private static final AtomicLong entitlementEndMs = new AtomicLong(0L);
+  /** Last snapshot revision applied in this process. */
+  private static final AtomicLong appliedRevision = new AtomicLong(0L);
+  private static final AtomicLong snapshotWrittenAtMs = new AtomicLong(0L);
+  private static volatile boolean lastSidecarReadable = false;
+  private static volatile long lastAuthSyncUptimeMs = 0L;
   private static final Set<String> monitoredPackages = Collections.synchronizedSet(new HashSet<>());
   private static final Map<String, int[]> cachedTapByPackage =
       Collections.synchronizedMap(new HashMap<>());
@@ -69,16 +94,24 @@ public final class AutoClickerConfig {
   private static volatile SharedPreferences prefs;
   private static volatile Context appContext;
 
-  public static final String PKG_OLA_DRIVER = "com.olacabs.oladriver";
+  public static final String PKG_OLA_DRIVER = PartnerTargetRegistry.PKG_OLA_DRIVER;
   /** Play Store Rapido Captain — package id is com.rapido.rider (not .captain). */
-  public static final String PKG_RAPIDO_CAPTAIN = "com.rapido.rider";
+  public static final String PKG_RAPIDO_CAPTAIN = PartnerTargetRegistry.PKG_RAPIDO_CAPTAIN;
   /** Legacy / alternate id some builds used. */
-  public static final String PKG_RAPIDO_CAPTAIN_LEGACY = "com.rapido.captain";
+  public static final String PKG_RAPIDO_CAPTAIN_LEGACY =
+      PartnerTargetRegistry.PKG_RAPIDO_CAPTAIN_LEGACY;
+  public static final String PKG_UBER_DRIVER = PartnerTargetRegistry.PKG_UBER_DRIVER;
+  public static final String PKG_PORTER_PARTNER = PartnerTargetRegistry.PKG_PORTER_PARTNER;
+  public static final String PKG_NAMMA_YATRI_PARTNER =
+      PartnerTargetRegistry.PKG_NAMMA_YATRI_PARTNER;
 
   static {
     monitoredPackages.add(PKG_OLA_DRIVER);
     monitoredPackages.add(PKG_RAPIDO_CAPTAIN);
     monitoredPackages.add(PKG_RAPIDO_CAPTAIN_LEGACY);
+    monitoredPackages.add(PKG_UBER_DRIVER);
+    monitoredPackages.add(PKG_PORTER_PARTNER);
+    monitoredPackages.add(PKG_NAMMA_YATRI_PARTNER);
   }
 
   private AutoClickerConfig() {}
@@ -109,11 +142,16 @@ public final class AutoClickerConfig {
     if (!prefs.contains(KEY_ENTITLEMENT_KNOWN) && !enabled.get() && !enabledFlagExists()) {
       entitlementKnown.set(true);
       entitlementActive.set(false);
+      long rev = nextRevisionLocked();
+      appliedRevision.set(rev);
       prefs.edit()
           .putBoolean(KEY_ENTITLEMENT_KNOWN, true)
           .putBoolean(KEY_ENTITLEMENT_ACTIVE, false)
+          .putLong(KEY_CONFIG_REVISION, rev)
           .commit();
+      stampAndWriteSidecar("first-install");
     }
+    refreshFromSidecarIfAhead();
   }
 
   /** Re-read disk prefs into memory (NLS/a11y can start before JS Module). */
@@ -154,10 +192,21 @@ public final class AutoClickerConfig {
     enabled.set(p.getBoolean("enabled", false) || enabledFlagExists());
     delayMs.set(0);
     loadAcceptStats(p);
+    // Fail closed when entitlement keys are missing — never invent a valid plan.
     entitlementKnown.set(p.getBoolean(KEY_ENTITLEMENT_KNOWN, false));
-    entitlementActive.set(p.getBoolean(KEY_ENTITLEMENT_ACTIVE, true));
+    entitlementActive.set(p.getBoolean(KEY_ENTITLEMENT_ACTIVE, false));
     entitlementDeviceAllowed.set(p.getBoolean(KEY_ENTITLEMENT_DEVICE_ALLOWED, true));
     entitlementEndMs.set(p.getLong(KEY_ENTITLEMENT_END_MS, 0L));
+    long prefRev = p.getLong(KEY_CONFIG_REVISION, 0L);
+    if (prefRev > appliedRevision.get()) {
+      appliedRevision.set(prefRev);
+    }
+    long written = p.getLong(KEY_SNAPSHOT_WRITTEN_MS, 0L);
+    if (written > snapshotWrittenAtMs.get()) {
+      snapshotWrittenAtMs.set(written);
+    }
+    // Sidecar is the cross-process authority for F1 fields; prefs can be stale.
+    refreshFromSidecarIfAhead();
   }
 
   /** Ensure prefs loaded before any enable/min check (safe from NLS binder thread). */
@@ -174,46 +223,108 @@ public final class AutoClickerConfig {
     return appContext;
   }
 
+  /**
+   * Action gate: refresh sidecar (throttled), enforce freshness, then
+   * requested && entitled. Never use {@link #peekEnabled()} to authorize.
+   */
   public static boolean isEnabled() {
-    syncCriticalFromDisk();
-    return isRequestedEnabled() && isEntitled();
+    return authorizeActions();
   }
 
-  public static void setEnabled(boolean value) {
+  /** Same as {@link #isEnabled()} — the single refresh-then-authorize check. */
+  public static boolean authorizeActions() {
+    syncForAuthorization();
+    long now = System.currentTimeMillis();
+    boolean fresh = ConfigSnapshot.isCachedSnapshotActionable(
+        lastSidecarReadable,
+        snapshotWrittenAtMs.get(),
+        now,
+        ConfigSnapshot.DEFAULT_MAX_STALE_MS);
+    if (!fresh) {
+      Log.i(TAG, "CONFIG_SNAPSHOT_STALE sidecar=" + lastSidecarReadable
+          + " writtenKnown=" + (snapshotWrittenAtMs.get() > 0L)
+          + " rev=" + appliedRevision.get());
+      return false;
+    }
+    return isEffectivelyEnabled();
+  }
+
+  public static synchronized void setEnabled(boolean value) {
     enabled.set(value);
     SharedPreferences p = prefs;
     if (p != null) p.edit().putBoolean("enabled", value).commit(); // commit — a11y must see it now
     writeEnabledFlag(value);
+    persistRevisionAndSidecar(nextRevisionLocked());
   }
 
   /** In-memory only read — does not re-hit disk (safe after setEnabled / broadcast). */
   public static boolean peekEnabled() {
-    return isRequestedEnabled() && isEntitled();
+    return isEffectivelyEnabled();
+  }
+
+  /** requestedEnabled && entitlementIsValid — never persisted as the user toggle. */
+  public static boolean isEffectivelyEnabled() {
+    return ConfigSnapshot.isEffectivelyEnabled(
+        isRequestedEnabled(),
+        entitlementKnown.get(),
+        entitlementActive.get(),
+        entitlementDeviceAllowed.get(),
+        entitlementEndMs.get(),
+        System.currentTimeMillis());
   }
 
   /** User intent, independent from permission/entitlement gates. */
   public static boolean isRequestedEnabled() {
-    return enabled.get() || enabledFlagExists();
+    return ConfigSnapshot.resolveRequestedEnabled(
+        enabled.get(),
+        enabledFlagExists(),
+        hasAuthoritativeRequested());
+  }
+
+  /** True once an F1 snapshot with known freshness has been applied. */
+  public static boolean hasAuthoritativeRequested() {
+    return appliedRevision.get() > 0L && snapshotWrittenAtMs.get() > 0L;
   }
 
   /**
    * The engine stays off until the server has confirmed this install's plan.
    */
   public static boolean isEntitled() {
-    if (!entitlementKnown.get()) return false;
-    if (!entitlementActive.get() || !entitlementDeviceAllowed.get()) return false;
-    long end = entitlementEndMs.get();
-    return end > 0L && System.currentTimeMillis() < end;
+    return ConfigSnapshot.isEntitled(
+        entitlementKnown.get(),
+        entitlementActive.get(),
+        entitlementDeviceAllowed.get(),
+        entitlementEndMs.get(),
+        System.currentTimeMillis());
+  }
+
+  public static boolean isEntitlementKnown() {
+    return entitlementKnown.get();
+  }
+
+  public static boolean isEntitlementActive() {
+    return entitlementActive.get();
+  }
+
+  public static boolean isDeviceAllowed() {
+    return entitlementDeviceAllowed.get();
+  }
+
+  public static long getEntitlementEndMs() {
+    return entitlementEndMs.get();
+  }
+
+  public static long getAppliedRevision() {
+    return appliedRevision.get();
   }
 
   public static String entitlementBlockReason() {
-    if (!entitlementKnown.get()) return "SUBSCRIPTION_REQUIRED";
-    if (!entitlementDeviceAllowed.get()) return "DEVICE_NOT_ALLOWED";
-    if (!entitlementActive.get()) return "SUBSCRIPTION_REQUIRED";
-    long end = entitlementEndMs.get();
-    if (end <= 0L) return "SUBSCRIPTION_REQUIRED";
-    if (System.currentTimeMillis() >= end) return "SUBSCRIPTION_EXPIRED";
-    return "";
+    return ConfigSnapshot.entitlementBlockReason(
+        entitlementKnown.get(),
+        entitlementActive.get(),
+        entitlementDeviceAllowed.get(),
+        entitlementEndMs.get(),
+        System.currentTimeMillis());
   }
 
   public static boolean peekNuclearMode() {
@@ -221,20 +332,20 @@ public final class AutoClickerConfig {
   }
 
   /**
-   * Apply toggle from UI→:engine broadcast. Also writes this process's prefs cache
-   * so later {@link #syncCriticalFromDisk} does not revert to a stale false.
+   * Legacy toggle apply. Writes <em>requested</em> intent only — never pass
+   * {@link #peekEnabled()} here. Prefer {@link #applyConfigSnapshot}.
    */
-  public static void applyEnabledFromBroadcast(boolean value) {
-    enabled.set(value);
+  public static void applyEnabledFromBroadcast(boolean requestedEnabled) {
+    enabled.set(requestedEnabled);
     SharedPreferences p = prefs;
     if (p != null) {
-      p.edit().putBoolean("enabled", value).commit();
+      p.edit().putBoolean("enabled", requestedEnabled).commit();
     } else if (appContext != null) {
       appContext.getSharedPreferences(PREFS, prefsMode())
-          .edit().putBoolean("enabled", value).commit();
+          .edit().putBoolean("enabled", requestedEnabled).commit();
       prefs = appContext.getSharedPreferences(PREFS, prefsMode());
     }
-    writeEnabledFlag(value);
+    writeEnabledFlag(requestedEnabled);
   }
 
   public static void applyNuclearFromBroadcast(boolean value) {
@@ -263,19 +374,26 @@ public final class AutoClickerConfig {
     long now = android.os.SystemClock.uptimeMillis();
     // Broadcast just applied truth — don't let stale process-local prefs flip it back OFF
     if (now < broadcastProtectUntilMs) return;
-    if (now - lastDiskSyncUptimeMs < 400L) return;
+    if (now - lastDiskSyncUptimeMs < REVISION_REFRESH_MIN_GAP_MS) return;
     lastDiskSyncUptimeMs = now;
-    enabled.set(p.getBoolean("enabled", false) || enabledFlagExists());
+    // F1 fields come from the sidecar when it is ahead. Do not let a stale
+    // SharedPreferences cache overwrite requested intent or entitlement.
+    if (refreshFromSidecarIfAhead()) {
+      nuclearMode.set(true);
+      minPrice.set(Math.max(0, p.getInt("min_price", 0)));
+      maxFare.set(Math.max(0, p.getInt("max_fare", 0)));
+      minPickup.set(p.getFloat("min_pickup", 0f));
+      maxPickup.set(p.getFloat("max_pickup", 0f));
+      maxDrop.set(p.getFloat("max_drop", maxDrop.get()));
+      loadAcceptStats(p);
+      return;
+    }
     nuclearMode.set(true);
     minPrice.set(Math.max(0, p.getInt("min_price", 0)));
     maxFare.set(Math.max(0, p.getInt("max_fare", 0)));
     minPickup.set(p.getFloat("min_pickup", 0f));
     maxPickup.set(p.getFloat("max_pickup", 0f));
     maxDrop.set(p.getFloat("max_drop", maxDrop.get()));
-    entitlementKnown.set(p.getBoolean(KEY_ENTITLEMENT_KNOWN, entitlementKnown.get()));
-    entitlementActive.set(p.getBoolean(KEY_ENTITLEMENT_ACTIVE, entitlementActive.get()));
-    entitlementDeviceAllowed.set(p.getBoolean(KEY_ENTITLEMENT_DEVICE_ALLOWED, entitlementDeviceAllowed.get()));
-    entitlementEndMs.set(p.getLong(KEY_ENTITLEMENT_END_MS, entitlementEndMs.get()));
     loadAcceptStats(p);
   }
 
@@ -303,6 +421,26 @@ public final class AutoClickerConfig {
   public static void markBroadcastApplied() {
     broadcastProtectUntilMs = android.os.SystemClock.uptimeMillis() + 5000L;
     lastDiskSyncUptimeMs = 0L;
+    lastAuthSyncUptimeMs = android.os.SystemClock.uptimeMillis();
+    lastSidecarReadable = true;
+  }
+
+  /**
+   * Throttled sidecar probe used by the action gate. A broadcast that just
+   * applied skips the file read and reuses the in-memory snapshot.
+   */
+  private static void syncForAuthorization() {
+    if (prefs == null && appContext != null) {
+      init(appContext);
+    }
+    long now = SystemClock.uptimeMillis();
+    if (now < broadcastProtectUntilMs) {
+      lastSidecarReadable = true;
+      return;
+    }
+    if (now - lastAuthSyncUptimeMs < REVISION_REFRESH_MIN_GAP_MS) return;
+    lastAuthSyncUptimeMs = now;
+    refreshFromSidecarIfAhead();
   }
 
   public static boolean isNuclearMode() {
@@ -401,6 +539,7 @@ public final class AutoClickerConfig {
   public static boolean isPackageMonitored(String packageName) {
     if (packageName == null) return false;
     if (monitoredPackages.contains(packageName)) return true;
+    if (PartnerTargetRegistry.isDetectionPackage(packageName)) return true;
     return isTargetPackage(packageName);
   }
 
@@ -410,30 +549,21 @@ public final class AutoClickerConfig {
   }
 
   public static boolean isTargetPackage(String packageName) {
-    if (packageName == null) return false;
-    if (packageName.equals("com.ridio.app")) return false;
-    return isOlaPackage(packageName) || isCaptainRapidoPackage(packageName);
+    return PartnerTargetRegistry.isTargetPackage(packageName);
   }
 
   public static boolean isOlaPackage(String packageName) {
-    if (packageName == null) return false;
-    return packageName.equals(PKG_OLA_DRIVER)
-        || packageName.startsWith("com.olacabs.oladriver");
+    return PartnerTargetRegistry.isOlaPackage(packageName);
   }
 
   /** Rapido Captain (a11y ACTION_CLICK — no Shizuku required). */
   public static boolean isCaptainRapidoPackage(String packageName) {
-    if (packageName == null) return false;
-    if (packageName.equals("com.ridio.app")) return false;
-    return packageName.equals(PKG_RAPIDO_CAPTAIN)
-        || packageName.equals(PKG_RAPIDO_CAPTAIN_LEGACY)
-        || packageName.startsWith("com.rapido.rider")
-        || packageName.startsWith("com.rapido.captain");
+    return PartnerTargetRegistry.isCaptainRapidoPackage(packageName);
   }
 
   /** Ola needs privileged inject; Rapido uses accessibility click. */
   public static boolean needsShizukuInject(String packageName) {
-    return isOlaPackage(packageName);
+    return PartnerTargetRegistry.needsShizukuInject(packageName);
   }
 
   /**
@@ -447,9 +577,9 @@ public final class AutoClickerConfig {
   }
 
   public static TapTarget tapTargetOf(String packageName) {
-    if (packageName == null || packageName.isEmpty()) return TapTarget.NONE;
-    if (isOlaPackage(packageName)) return TapTarget.OLA;
-    if (isCaptainRapidoPackage(packageName)) return TapTarget.RAPIDO;
+    PartnerTargetRegistry.ActionableTap tap = PartnerTargetRegistry.actionableTap(packageName);
+    if (tap == PartnerTargetRegistry.ActionableTap.OLA) return TapTarget.OLA;
+    if (tap == PartnerTargetRegistry.ActionableTap.RAPIDO) return TapTarget.RAPIDO;
     return TapTarget.NONE;
   }
 
@@ -457,6 +587,89 @@ public final class AutoClickerConfig {
     if (target == TapTarget.OLA) return PKG_OLA_DRIVER;
     if (target == TapTarget.RAPIDO) return PKG_RAPIDO_CAPTAIN;
     return null;
+  }
+
+  /**
+   * Pure stale check for JVM tests. Heartbeat and now are
+   * {@link SystemClock#elapsedRealtime()} values.
+   */
+  public static boolean isEngineHeartbeatFresh(long nowElapsedMs, long heartbeatElapsedMs) {
+    return EngineHeartbeat.isFresh(nowElapsedMs, heartbeatElapsedMs);
+  }
+
+  public static boolean isEngineHeartbeatFresh() {
+    long now = SystemClock.elapsedRealtime();
+    long fromFile = readHeartbeatSidecar();
+    if (EngineHeartbeat.isFresh(now, fromFile)) return true;
+    SharedPreferences p = prefs;
+    if (p == null) return false;
+    return EngineHeartbeat.isFresh(now, p.getLong(KEY_ENGINE_HEARTBEAT_ELAPSED, 0L));
+  }
+
+  /** Called from :engine onServiceConnected and the race watchdog. */
+  public static void noteEngineHeartbeat() {
+    long now = SystemClock.elapsedRealtime();
+    long prev = lastHeartbeatWriteElapsed.get();
+    if (now - prev < HEARTBEAT_WRITE_MIN_GAP_MS && prev > 0L) return;
+    lastHeartbeatWriteElapsed.set(now);
+    SharedPreferences p = prefs;
+    if (p != null) p.edit().putLong(KEY_ENGINE_HEARTBEAT_ELAPSED, now).apply();
+    if (now - lastHeartbeatFileWriteElapsed >= HEARTBEAT_FILE_WRITE_MIN_GAP_MS) {
+      lastHeartbeatFileWriteElapsed = now;
+      writeHeartbeatSidecar(now);
+    }
+  }
+
+  /** Called from :engine onDestroy so Home does not keep showing LIVE. */
+  public static void clearEngineHeartbeat() {
+    lastHeartbeatWriteElapsed.set(0L);
+    SharedPreferences p = prefs;
+    if (p != null) p.edit().putLong(KEY_ENGINE_HEARTBEAT_ELAPSED, 0L).apply();
+    File f = heartbeatFile();
+    if (f != null && f.exists()) {
+      //noinspection ResultOfMethodCallIgnored
+      f.delete();
+    }
+  }
+
+  private static File heartbeatFile() {
+    Context ctx = appContext;
+    if (ctx == null) return null;
+    return new File(ctx.getFilesDir(), HEARTBEAT_FILE);
+  }
+
+  private static void writeHeartbeatSidecar(long elapsedRealtimeMs) {
+    File dst = heartbeatFile();
+    if (dst == null) return;
+    FileOutputStream out = null;
+    try {
+      out = new FileOutputStream(dst);
+      out.write(Long.toString(elapsedRealtimeMs).getBytes(StandardCharsets.UTF_8));
+    } catch (Exception ignored) {
+    } finally {
+      if (out != null) {
+        try { out.close(); } catch (Exception ignored) {}
+      }
+    }
+  }
+
+  private static long readHeartbeatSidecar() {
+    File f = heartbeatFile();
+    if (f == null || !f.exists()) return 0L;
+    FileInputStream in = null;
+    try {
+      in = new FileInputStream(f);
+      byte[] buf = new byte[32];
+      int n = in.read(buf);
+      if (n <= 0) return 0L;
+      return Long.parseLong(new String(buf, 0, n, StandardCharsets.UTF_8).trim());
+    } catch (Exception e) {
+      return 0L;
+    } finally {
+      if (in != null) {
+        try { in.close(); } catch (Exception ignored) {}
+      }
+    }
   }
 
   public static void setMonitoredPackages(Set<String> packages) {
@@ -483,8 +696,12 @@ public final class AutoClickerConfig {
    * process. A single version lets the service reject partial/stale updates.
    */
   public static long getConfigRevision() {
+    long rev = appliedRevision.get();
     SharedPreferences p = prefs;
-    return p != null ? p.getLong(KEY_CONFIG_REVISION, 0L) : 0L;
+    if (p != null) rev = Math.max(rev, p.getLong(KEY_CONFIG_REVISION, 0L));
+    ConfigSnapshot snap = readSnapshotSidecar();
+    if (snap != null) rev = Math.max(rev, snap.revision);
+    return rev;
   }
 
   /**
@@ -513,7 +730,7 @@ public final class AutoClickerConfig {
       packages.add(PKG_RAPIDO_CAPTAIN);
       packages.add(PKG_RAPIDO_CAPTAIN_LEGACY);
     }
-    long revision = p != null ? p.getLong(KEY_CONFIG_REVISION, 0L) + 1L : 1L;
+    long revision = nextRevisionLocked();
 
     enabled.set(nextEnabled);
     nuclearMode.set(true);
@@ -542,8 +759,81 @@ public final class AutoClickerConfig {
           .commit();
     }
     writeEnabledFlag(nextEnabled);
-    markBroadcastApplied();
+    appliedRevision.set(revision);
+    stampAndWriteSidecar("automation-config");
     return revision;
+  }
+
+  /**
+   * Apply a complete UI→:engine snapshot. Requested intent and entitlement
+   * stay independent. Older revisions are ignored.
+   *
+   * @return true when this process accepted the snapshot
+   */
+  public static synchronized boolean applyConfigSnapshot(
+      boolean requestedEnabled,
+      boolean known,
+      boolean active,
+      boolean deviceAllowed,
+      long subscriptionEndEpochMs,
+      long revision,
+      int nextMinPrice,
+      int nextMaxFare,
+      float nextMinPickup,
+      float nextMaxPickup,
+      float nextMaxDrop) {
+    if (prefs == null && appContext != null) init(appContext);
+    long writtenAt = System.currentTimeMillis();
+    ConfigSnapshot incoming = new ConfigSnapshot(
+        requestedEnabled, known, active, deviceAllowed, subscriptionEndEpochMs, revision,
+        writtenAt);
+    if (!ConfigSnapshot.shouldApplyRevision(incoming.revision, appliedRevision.get())) {
+      Log.i(TAG, "CONFIG_SNAPSHOT_SKIP incoming=" + incoming.revision
+          + " applied=" + appliedRevision.get());
+      return false;
+    }
+
+    enabled.set(incoming.requestedEnabled);
+    entitlementKnown.set(incoming.entitlementKnown);
+    entitlementActive.set(incoming.entitlementActive);
+    entitlementDeviceAllowed.set(incoming.deviceAllowed);
+    entitlementEndMs.set(incoming.endMs);
+    nuclearMode.set(true);
+    minPrice.set(Math.max(0, nextMinPrice));
+    maxFare.set(Math.max(0, nextMaxFare));
+    minPickup.set(Math.max(0f, nextMinPickup));
+    maxPickup.set(Math.max(0f, nextMaxPickup));
+    maxDrop.set(Math.max(0f, nextMaxDrop));
+    writeEnabledFlag(incoming.requestedEnabled);
+
+    SharedPreferences p = prefs;
+    if (p == null && appContext != null) {
+      prefs = appContext.getSharedPreferences(PREFS, prefsMode());
+      p = prefs;
+    }
+    if (p != null) {
+      p.edit()
+          .putBoolean("enabled", incoming.requestedEnabled)
+          .putBoolean(KEY_ENTITLEMENT_KNOWN, incoming.entitlementKnown)
+          .putBoolean(KEY_ENTITLEMENT_ACTIVE, incoming.entitlementActive)
+          .putBoolean(KEY_ENTITLEMENT_DEVICE_ALLOWED, incoming.deviceAllowed)
+          .putLong(KEY_ENTITLEMENT_END_MS, incoming.endMs)
+          .putBoolean("nuclear_mode", true)
+          .putInt("min_price", minPrice.get())
+          .putInt("max_fare", maxFare.get())
+          .putFloat("min_pickup", minPickup.get())
+          .putFloat("max_pickup", maxPickup.get())
+          .putFloat("max_drop", maxDrop.get())
+          .putLong(KEY_CONFIG_REVISION, incoming.revision)
+          .putLong(KEY_SNAPSHOT_WRITTEN_MS, incoming.writtenAtMs)
+          .commit();
+    }
+    appliedRevision.set(incoming.revision);
+    snapshotWrittenAtMs.set(incoming.writtenAtMs);
+    writeSnapshotSidecar(incoming);
+    markBroadcastApplied();
+    logEffectiveState("snapshot");
+    return true;
   }
 
   /** Persist server-confirmed entitlement for the isolated engine process. */
@@ -554,6 +844,7 @@ public final class AutoClickerConfig {
     entitlementActive.set(active);
     entitlementDeviceAllowed.set(deviceAllowed);
     entitlementEndMs.set(Math.max(0L, subscriptionEndEpochMs));
+    long revision = nextRevisionLocked();
     SharedPreferences p = prefs;
     if (p != null) {
       p.edit()
@@ -561,8 +852,11 @@ public final class AutoClickerConfig {
           .putBoolean(KEY_ENTITLEMENT_ACTIVE, active)
           .putBoolean(KEY_ENTITLEMENT_DEVICE_ALLOWED, deviceAllowed)
           .putLong(KEY_ENTITLEMENT_END_MS, Math.max(0L, subscriptionEndEpochMs))
+          .putLong(KEY_CONFIG_REVISION, revision)
           .commit();
     }
+    appliedRevision.set(revision);
+    stampAndWriteSidecar("entitlement");
   }
 
   public static void cacheTapPoint(String packageName, int x, int y) {
@@ -732,6 +1026,167 @@ public final class AutoClickerConfig {
         .putInt("accept_count", acceptedCount.get())
         .putInt("last_latency_ms", lastLatencyMs.get())
         .commit();
+  }
+
+  private static ConfigSnapshot currentSnapshot() {
+    return new ConfigSnapshot(
+        enabled.get(),
+        entitlementKnown.get(),
+        entitlementActive.get(),
+        entitlementDeviceAllowed.get(),
+        entitlementEndMs.get(),
+        appliedRevision.get(),
+        snapshotWrittenAtMs.get());
+  }
+
+  private static void stampAndWriteSidecar(String reason) {
+    long writtenAt = System.currentTimeMillis();
+    snapshotWrittenAtMs.set(writtenAt);
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit().putLong(KEY_SNAPSHOT_WRITTEN_MS, writtenAt).commit();
+    }
+    writeSnapshotSidecar(currentSnapshot().withWrittenAt(writtenAt));
+    markBroadcastApplied();
+    logEffectiveState(reason);
+  }
+
+  private static long nextRevisionLocked() {
+    return getConfigRevision() + 1L;
+  }
+
+  private static void persistRevisionAndSidecar(long revision) {
+    appliedRevision.set(revision);
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit().putLong(KEY_CONFIG_REVISION, revision).commit();
+    }
+    stampAndWriteSidecar("requested");
+  }
+
+  /**
+   * If the shared sidecar is newer than this process's applied revision,
+   * adopt it. Used when a broadcast is missed. Does not invent a valid plan
+   * when the file is missing or unreadable.
+   */
+  public static synchronized boolean refreshFromSidecarIfAhead() {
+    ConfigSnapshot snap = readSnapshotSidecar();
+    if (snap == null) return false;
+    if (snap.writtenAtMs > snapshotWrittenAtMs.get()) {
+      snapshotWrittenAtMs.set(snap.writtenAtMs);
+    }
+    // v1 sidecar: file is complete but has no freshness — stamp once.
+    if (snap.writtenAtMs <= 0L && snap.revision > 0L) {
+      snap = snap.withWrittenAt(System.currentTimeMillis());
+      snapshotWrittenAtMs.set(snap.writtenAtMs);
+      writeSnapshotSidecar(snap);
+    }
+    if (!ConfigSnapshot.isNewerRevision(snap.revision, appliedRevision.get())) {
+      return false;
+    }
+    enabled.set(snap.requestedEnabled);
+    entitlementKnown.set(snap.entitlementKnown);
+    entitlementActive.set(snap.entitlementActive);
+    entitlementDeviceAllowed.set(snap.deviceAllowed);
+    entitlementEndMs.set(snap.endMs);
+    writeEnabledFlag(snap.requestedEnabled);
+    appliedRevision.set(snap.revision);
+    if (snap.writtenAtMs > 0L) snapshotWrittenAtMs.set(snap.writtenAtMs);
+    SharedPreferences p = prefs;
+    if (p != null) {
+      p.edit()
+          .putBoolean("enabled", snap.requestedEnabled)
+          .putBoolean(KEY_ENTITLEMENT_KNOWN, snap.entitlementKnown)
+          .putBoolean(KEY_ENTITLEMENT_ACTIVE, snap.entitlementActive)
+          .putBoolean(KEY_ENTITLEMENT_DEVICE_ALLOWED, snap.deviceAllowed)
+          .putLong(KEY_ENTITLEMENT_END_MS, snap.endMs)
+          .putLong(KEY_CONFIG_REVISION, snap.revision)
+          .putLong(KEY_SNAPSHOT_WRITTEN_MS, snapshotWrittenAtMs.get())
+          .commit();
+    }
+    markBroadcastApplied();
+    Log.i(TAG, "CONFIG_REVISION_REFRESH from=" + snap.revision
+        + " requested=" + snap.requestedEnabled
+        + " entitled=" + snap.isEntitled(System.currentTimeMillis())
+        + " effective=" + snap.isEffectivelyEnabled(System.currentTimeMillis()));
+    return true;
+  }
+
+  private static void logEffectiveState(String reason) {
+    Log.i(TAG, "CONFIG_EFFECTIVE_STATE reason=" + reason
+        + " rev=" + appliedRevision.get()
+        + " requested=" + isRequestedEnabled()
+        + " entitled=" + isEntitled()
+        + " effective=" + isEffectivelyEnabled()
+        + " known=" + entitlementKnown.get()
+        + " device=" + entitlementDeviceAllowed.get()
+        + (entitlementBlockReason().isEmpty() ? "" : " block=" + entitlementBlockReason()));
+  }
+
+  private static File snapshotFile() {
+    Context ctx = appContext;
+    if (ctx == null) return null;
+    return new File(ctx.getFilesDir(), SNAPSHOT_FILE);
+  }
+
+  private static void writeSnapshotSidecar(ConfigSnapshot snap) {
+    if (snap == null) return;
+    File dst = snapshotFile();
+    if (dst == null) return;
+    ConfigSnapshot stamped = snap.writtenAtMs > 0L
+        ? snap
+        : snap.withWrittenAt(System.currentTimeMillis());
+    snapshotWrittenAtMs.set(stamped.writtenAtMs);
+    AtomicFile af = new AtomicFile(dst);
+    FileOutputStream out = null;
+    try {
+      out = af.startWrite();
+      out.write(stamped.serialize().getBytes(StandardCharsets.UTF_8));
+      af.finishWrite(out);
+      out = null;
+      lastSidecarReadable = true;
+    } catch (Exception e) {
+      Log.w(TAG, "CONFIG_SNAPSHOT_WRITE_FAIL");
+      if (out != null) {
+        try {
+          af.failWrite(out);
+        } catch (Exception ignored) {
+        }
+      }
+    }
+  }
+
+  private static ConfigSnapshot readSnapshotSidecar() {
+    File f = snapshotFile();
+    if (f == null) {
+      lastSidecarReadable = false;
+      return null;
+    }
+    AtomicFile af = new AtomicFile(f);
+    FileInputStream in = null;
+    try {
+      in = af.openRead();
+      BufferedReader reader = new BufferedReader(
+          new InputStreamReader(in, StandardCharsets.UTF_8));
+      StringBuilder sb = new StringBuilder(128);
+      String line;
+      while ((line = reader.readLine()) != null) {
+        sb.append(line).append('\n');
+      }
+      ConfigSnapshot snap = ConfigSnapshot.parse(sb.toString());
+      lastSidecarReadable = snap != null;
+      return snap;
+    } catch (Exception e) {
+      lastSidecarReadable = false;
+      if (!(e instanceof java.io.FileNotFoundException)) {
+        Log.w(TAG, "CONFIG_SNAPSHOT_READ_FAIL");
+      }
+      return null;
+    } finally {
+      if (in != null) {
+        try { in.close(); } catch (Exception ignored) {}
+      }
+    }
   }
 
   /** Disk flag so {@code :engine} still sees ON after a Recents swipe / process reuse. */

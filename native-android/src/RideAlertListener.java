@@ -64,7 +64,7 @@ public class RideAlertListener extends NotificationListenerService {
 
   /** After OEM unbind/rebind, re-arm any ride heads-up still in the shade. */
   private void replayActiveRideNotifications() {
-    if (!AutoClickerConfig.peekEnabled()) return;
+    if (!AutoClickerConfig.isEnabled()) return;
     StatusBarNotification[] active;
     try {
       active = getActiveNotifications();
@@ -101,12 +101,16 @@ public class RideAlertListener extends NotificationListenerService {
     AutoClickerConfig.ensureInit(this);
     String pkg = sbn.getPackageName();
     if (pkg == null || !AutoClickerConfig.isPackageMonitored(pkg)) return;
-    if (!AutoClickerConfig.peekEnabled()) {
+    if (!AutoClickerConfig.isEnabled()) {
       long now = SystemClock.uptimeMillis();
       if (now - lastSkipDisabledLogUptime >= SKIP_LOG_MIN_INTERVAL_MS) {
         lastSkipDisabledLogUptime = now;
         Log.w(TAG, "SKIP_DISABLED pkg=" + pkg
-            + " — Auto-accept OFF (turn ON in AG rider Home)");
+            + " requested=" + AutoClickerConfig.isRequestedEnabled()
+            + " entitled=" + AutoClickerConfig.isEntitled()
+            + " rev=" + AutoClickerConfig.getAppliedRevision()
+            + (AutoClickerConfig.entitlementBlockReason().isEmpty()
+                ? "" : " block=" + AutoClickerConfig.entitlementBlockReason()));
       }
       return;
     }

@@ -61,8 +61,9 @@ public final class TapHighlightOverlay {
         latch.countDown();
       }
     });
+    // Never block the a11y main thread — overlay hide is best-effort.
     try {
-      latch.await(120, TimeUnit.MILLISECONDS);
+      latch.await(25, TimeUnit.MILLISECONDS);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }

@@ -9,7 +9,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Log;
 
 /**
@@ -28,7 +30,9 @@ public class EngineKeepAlive extends Service {
     if (context == null) return;
     Context ctx = context.getApplicationContext();
     AutoClickerConfig.ensureInit(ctx);
-    if (!AutoClickerConfig.peekEnabled() && !AutoClickerConfig.isEnabled()) return;
+    if (!AutoClickerConfig.isRequestedEnabled()
+        && !AutoClickerConfig.peekEnabled()
+        && !AutoClickerConfig.isEnabled()) return;
     Intent i = new Intent(ctx, EngineKeepAlive.class);
     i.setAction(ACTION_START);
     try {
@@ -69,7 +73,9 @@ public class EngineKeepAlive extends Service {
     AutoClickerConfig.ensureInit(this);
     String action = intent != null ? intent.getAction() : ACTION_START;
     if (ACTION_STOP.equals(action)
-        || (!AutoClickerConfig.peekEnabled() && !AutoClickerConfig.isEnabled())) {
+        || (!AutoClickerConfig.isRequestedEnabled()
+            && !AutoClickerConfig.peekEnabled()
+            && !AutoClickerConfig.isEnabled())) {
       dropForeground();
       stopSelf();
       return START_NOT_STICKY;
@@ -78,20 +84,32 @@ public class EngineKeepAlive extends Service {
     return START_STICKY;
   }
 
+  private static final Handler MAIN = new Handler(Looper.getMainLooper());
+
   @Override
   public void onTaskRemoved(Intent rootIntent) {
     AutoClickerConfig.ensureInit(this);
-    if (AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled()) {
-      promoteForeground();
-      ensureStarted(this);
-      WatchdogAlarm.schedule(this);
+    if (AutoClickerConfig.isRequestedEnabled()
+        || AutoClickerConfig.peekEnabled()
+        || AutoClickerConfig.isEnabled()) {
+      MAIN.post(() -> {
+        try {
+          promoteForeground();
+          ensureStarted(EngineKeepAlive.this);
+          WatchdogAlarm.schedule(EngineKeepAlive.this);
+        } catch (Throwable t) {
+          Log.w(TAG, "onTaskRemoved: " + t.getMessage());
+        }
+      });
     }
     super.onTaskRemoved(rootIntent);
   }
 
   @Override
   public void onDestroy() {
-    boolean keep = AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled();
+    boolean keep = AutoClickerConfig.isRequestedEnabled()
+        || AutoClickerConfig.peekEnabled()
+        || AutoClickerConfig.isEnabled();
     if (keep) {
       // OEM tore us down — ask Android to bring the sticky service back
       try {

@@ -78,7 +78,11 @@ public class AutoClickerService extends AccessibilityService {
    */
   private static final int CARD_IDENTITY_QUANTUM_PX = 48;
   private static final long SAME_CARD_HOLD_AFTER_OK_MS = 1000L;
-  private static final long SAME_CARD_HOLD_AFTER_MISS_MS = 800L;
+  /**
+   * After a miss, identity ({@link #sameCardIdentity}) still blocks the same
+   * button. Keep this short so a new overlay in the same fare band can race.
+   */
+  private static final long SAME_CARD_HOLD_AFTER_MISS_MS = 250L;
   /** @deprecated Prefer {@link #RACE_COOLDOWN_MS}; kept equal for legacy paths. */
   @Deprecated
   private static final long RAPIDO_POST_HIT_COOLDOWN_MS = RACE_COOLDOWN_MS;
@@ -101,13 +105,15 @@ public class AutoClickerService extends AccessibilityService {
   /** Extra dual strikes after the immediate first click (while verifying). */
   private static final int RAPIDO_MICRO_EXTRA = 5;
   private static final int RAPIDO_MICRO_EXTRA_HEAVY = 5;
-  /** Accept-text hunt poll while racing (Captain FG). */
-  private static final long ACCEPT_HUNT_POLL_MS = 1;
-  /** Armed overlay hunt over other apps — keep near-FG speed (late Accept paint). */
-  private static final long ARMED_BG_HUNT_POLL_MS = 2;
-  private static final long ARMED_BG_HUNT_POLL_HEAVY_MS = 1;
+  /** Accept-text hunt poll while racing. 1ms never yields and ANRs the engine. */
+  private static final long ACCEPT_HUNT_POLL_MS = 16;
+  /** Armed overlay hunt over other apps. */
+  private static final long ARMED_BG_HUNT_POLL_MS = 24;
+  private static final long ARMED_BG_HUNT_POLL_HEAVY_MS = 32;
   /** Skip duplicate empty walks during event storms (misses only). */
-  private static final long EMPTY_HUNT_COALESCE_MS = 1;
+  private static final long EMPTY_HUNT_COALESCE_MS = 40;
+  /** Full getWindows scan. Faster than this stalls the accessibility thread. */
+  private static final long WINDOW_HUNT_MIN_GAP_MS = 48;
   /** Keep overlay bounds briefly after a confirmed Accept sighting. */
   private static final long OVERLAY_STICKY_MS = 700;
   /**
@@ -203,23 +209,6 @@ public class AutoClickerService extends AccessibilityService {
       "Accepted",
   };
 
-  private static final Pattern PRICE_COMBO =
-      Pattern.compile("₹\\s*(\\d+(?:\\.\\d+)?)\\s*\\+\\s*₹\\s*(\\d+(?:\\.\\d+)?)");
-  private static final Pattern PRICE_SINGLE =
-      Pattern.compile("₹\\s*(\\d+(?:\\.\\d+)?)");
-  /** Pickup / drop distances: "0.8 km", "800 m", "800m". Does not match "min". */
-  private static final Pattern DIST_ANY =
-      Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(k\\s*m|m)\\b", Pattern.CASE_INSENSITIVE);
-  private static final Pattern PICKUP_DIST =
-      Pattern.compile(
-          "(?:pick\\s*-?\\s*up|pickup|\u092a\u0940\u0915\u0905\u092a|\u0c2a\u0c3f\u0c15\u0c2a\u0c4d)[^\\d]{0,40}(\\d+(?:\\.\\d+)?)\\s*(k\\s*m|m)\\b",
-          Pattern.CASE_INSENSITIVE);
-  private static final Pattern DROP_DIST =
-      Pattern.compile(
-          "(?:drop\\s*-?\\s*off|dropoff|drop|destination|\u0921\u094d\u0930\u0949\u092a)[^\\d]{0,40}(\\d+(?:\\.\\d+)?)\\s*(k\\s*m|m)\\b",
-          Pattern.CASE_INSENSITIVE);
-  private static final Pattern PRICE_ANY =
-      Pattern.compile("(?:₹|rs\\.?|inr|\u0930\u0941)\\s*(\\d+(?:\\.\\d+)?)", Pattern.CASE_INSENSITIVE);
   /** Ola list card: "Accept in 5" / "ACCEPT IN 3" — locked until countdown clears. */
   private static final Pattern ACCEPT_IN_COUNTDOWN =
       Pattern.compile("(?i)accept\\s*in\\s*(\\d+)");
@@ -236,7 +225,7 @@ public class AutoClickerService extends AccessibilityService {
   private static final long OLA_ONE_SHOT_TAP_MS = 90L;
   private static final int OLA_UNLOCK_DEFER_MAX = 16;
   /** First tap + one retry if Accept is still up — not a spray. */
-  private static final int OLA_MAX_SHIZUKU_TAPS = 2;
+  private static final int OLA_MAX_SHIZUKU_TAPS = 3;
 
   /** NLS follow-ups after immediate +0 hunt — spans adaptive arm for late overlays. */
   private static final long[] NLS_FOLLOW_DELAYS_MS = {
@@ -335,6 +324,8 @@ public class AutoClickerService extends AccessibilityService {
   private float struckCardDrop;
   private String struckCardMark = "";
   private volatile long struckCardUntilMs;
+  /** True when the hold came from a verify-miss, not a confirmed accept. */
+  private volatile boolean struckCardFromMiss;
   /** Hard wall-clock latch after Accept hit (survives NLS clear attempts). */
   private volatile long ignoreRapidoUntilMs = 0;
   /** Captain shows nav / End Ride chrome — still hunt Accept (along-route offers). */
@@ -391,10 +382,12 @@ public class AutoClickerService extends AccessibilityService {
   private volatile long verifyFindAt = 0;
   /** True when verify started from notif Accept action (may succeed with no UI Accept). */
   private volatile boolean verifyFromPendingIntent = false;
-  /** History emit once per confirmed Accept (after VERIFY) — never mid-race. */
+  /** History emit once per confirmed Accept — never on strike / dispatch. */
   private volatile boolean raceEmitted = false;
-  /** Stash strike metrics; flush only from disarmAfterAcceptSuccess (async). */
+  /** Stash strike metrics; confirmed flush only after trustworthy evidence. */
   private volatile boolean pendingHistoryValid = false;
+  /** F3: attempt vs confirmed. Never treat dispatch as a confirmed ride. */
+  private final AcceptAttemptTracker acceptOutcomes = new AcceptAttemptTracker();
   private volatile String pendingHistoryPkg = null;
   private volatile int pendingHistoryMs = 0;
   private volatile int pendingHistoryFare = 0;
@@ -429,6 +422,21 @@ public class AutoClickerService extends AccessibilityService {
   static volatile long lastRideSignalUptimeMs = 0L;
   /** True after haltEngineMasterOff until Auto-accept is turned back ON. */
   private volatile boolean engineHaltedForMasterOff = false;
+  /** Avoid disk/sidecar auth on every a11y event (OEM event storms). */
+  private volatile boolean cachedEngineOn = false;
+  private volatile long cachedEngineOnAtMs = 0L;
+  private static final long ENGINE_ON_CACHE_MS = 1200L;
+  private volatile long lastHeavyWatchdogMs = 0L;
+  private static final long HEAVY_WATCHDOG_GAP_MS = 2500L;
+  private volatile long lastNuclearOverlayMs = 0L;
+  private volatile long lastA11yCoalesceMs = 0L;
+  private volatile long lastWindowHuntMs = 0L;
+  private volatile long lastIdleCheckMs = 0L;
+  private volatile boolean lastIdleCheck = false;
+  private volatile long lastFgSyncMs = 0L;
+  private static final long FG_SYNC_MIN_GAP_MS = 100L;
+  private volatile long lastRecoverCheckMs = 0L;
+  private static final long RECOVER_CHECK_MIN_GAP_MS = 350L;
   /** Keep hunting this long after ACCEPT_OK (along-route / next ping). */
   private volatile long standbyHuntUntilMs = 0;
   private volatile long lastAcceptOkAtMs = 0;
@@ -532,6 +540,8 @@ public class AutoClickerService extends AccessibilityService {
   private volatile long lastEmptyHuntAtMs = 0;
   /** Throttle HUNT_EMPTY / OVERLAY_PROBE miss logs. */
   private volatile long lastEmptyHuntLogMs = 0;
+  /** Throttle compact-sheet Accept hunt logs. */
+  private volatile long lastOverlayHuntLogMs = 0;
   /** Throttle expensive missed-order tree dumps (not on every strike). */
   private volatile long lastMissedScanAtMs = 0;
   private volatile boolean lastMissedScanHit = false;
@@ -547,13 +557,19 @@ public class AutoClickerService extends AccessibilityService {
       if (!shouldRunAcceptHuntPoll()) {
         return;
       }
-      recoverIfRaceStuck("hunt-poll");
       long t0 = SystemClock.uptimeMillis();
-      // While verifying a UI strike, burst owns restrikes — skip parallel hunt
+      if (t0 - lastRecoverCheckMs >= RECOVER_CHECK_MIN_GAP_MS) {
+        lastRecoverCheckMs = t0;
+        recoverIfRaceStuck("hunt-poll");
+      }
+      // While verifying a UI strike, burst owns restrikes — skip parallel hunt.
+      // Never call getWindows on every tick — that is the "isn't responding" ANR.
       if (!verifyingAccept || verifyFromPendingIntent || !rapidoBurstLock) {
-        // Only FG / armed poll — never idle sheet spam (caused mid-screen taps)
+        boolean windowDue = t0 - lastWindowHuntMs >= WINDOW_HUNT_MIN_GAP_MS;
+        if (windowDue) lastWindowHuntMs = t0;
         huntAccept(lastPkg, t0,
-            rapidoForeground ? "FgAcceptPoll" : "ArmedAcceptPoll");
+            rapidoForeground ? "FgAcceptPoll" : "ArmedAcceptPoll",
+            !windowDue);
       }
       scheduleAcceptHuntPoll();
     }
@@ -568,8 +584,13 @@ public class AutoClickerService extends AccessibilityService {
     @Override
     public void run() {
       try {
+        long now = SystemClock.uptimeMillis();
+        AutoClickerConfig.noteEngineHeartbeat();
         if (!engineIsOn()) {
-          AutoClickerConfig.reloadFromPrefs();
+          if (now - lastHeavyWatchdogMs >= HEAVY_WATCHDOG_GAP_MS) {
+            AutoClickerConfig.reloadFromPrefs();
+            invalidateEngineOnCache();
+          }
           if (engineIsOn()) {
             resumeEngineMasterOn("watchdog-prefs");
           } else {
@@ -583,7 +604,6 @@ public class AutoClickerService extends AccessibilityService {
         isRapidoInteractionBlocked();
         recoverIfRaceStuck("watchdog");
         // Safety: sticky ignore longer than 2s must not kill ride 3+
-        long now = SystemClock.uptimeMillis();
         if (ignoreRapidoUntilMs > 0 && now > ignoreRapidoUntilMs + 50L) {
           ignoreRapidoUntilMs = 0;
           acceptSuccessLatch = false;
@@ -595,8 +615,6 @@ public class AutoClickerService extends AccessibilityService {
           acceptSuccessLatch = false;
           rapidoCooldownUntilMs = 0;
         }
-        maybeRefreshFrozenTree("watchdog");
-        flushPendingRideSignal("watchdog");
         // Captain FG / overlay still up — do not let the 180s standby expire
         if (rapidoForeground || hasNonBubbleRapidoWindow()) {
           extendStandbyHunt("watchdog-keep");
@@ -604,10 +622,17 @@ public class AutoClickerService extends AccessibilityService {
         // Captain FG / armed / standby — keep hunt alive for continuous accepts
         if (shouldRunAcceptHuntPoll()) {
           scheduleAcceptHuntPoll();
-        } else if (!isRapidoInteractionBlocked() && !shouldIdleForBubbleOnly()) {
-          sheetOverlayProbe(now);
         }
-        catchEdgeStall("watchdog");
+        boolean heavy = now - lastHeavyWatchdogMs >= HEAVY_WATCHDOG_GAP_MS;
+        if (heavy) {
+          lastHeavyWatchdogMs = now;
+          maybeRefreshFrozenTree("watchdog");
+          flushPendingRideSignal("watchdog");
+          if (!isRapidoInteractionBlocked() && !shouldIdleForBubbleOnly()) {
+            sheetOverlayProbe(now);
+          }
+          catchEdgeStall("watchdog");
+        }
       } finally {
         long delay = RACE_WATCHDOG_MS;
         if (engineIsOn() && (isRaceActive() || isStandbyHunting() || rapidoForeground)) {
@@ -731,8 +756,8 @@ public class AutoClickerService extends AccessibilityService {
   };
 
   /**
-   * Soft confirm after a strike. Disarms and holds the same card when Accept
-   * was seen and then disappeared. It does not strike again.
+   * Soft Accept-gone watch after a strike. Disarms the race when Accept
+   * disappears. That is not a confirmed ride.
    */
   private final Runnable historyConfirmRunnable = new Runnable() {
     @Override
@@ -752,8 +777,9 @@ public class AutoClickerService extends AccessibilityService {
         acceptVisible = acceptStillVisibleAnywhere();
       } catch (Exception ignored) {
       }
-      // ONLY confirm when Accept was seen after our strike, then disappeared.
+      // Accept gone is not a confirmed ride — mark UNCERTAIN, then stop the race.
       if (acceptSeenDuringVerify && !acceptVisible) {
+        noteAttemptUncertain(AcceptAttemptTracker.Evidence.ACCEPT_CONTROL_GONE, "hist-accept-gone");
         disarmAfterAcceptSuccess("hist-accept-gone");
         return;
       }
@@ -763,6 +789,7 @@ public class AutoClickerService extends AccessibilityService {
       if (now < historyConfirmUntilMs) {
         handler.postDelayed(this, HISTORY_CONFIRM_POLL_MS);
       } else {
+        noteAttemptUncertain(AcceptAttemptTracker.Evidence.VERIFY_TIMEOUT, "hist-timeout");
         clearPendingAcceptHistory();
         Log.i(TAG, "HISTORY_CONFIRM_TIMEOUT");
       }
@@ -804,6 +831,7 @@ public class AutoClickerService extends AccessibilityService {
       // Dead Missed-order card still shows Accept — never count as a win
       if (rootLooksLikeMissedOfferAnywhere()) {
         Log.i(TAG, "VERIFY_MISS missed-order-ui");
+        noteAttemptFailed(AcceptAttemptTracker.Evidence.MISSED_ORDER, "verify-missed-order");
         cancelVerify("verify-missed-order");
         finishRapidoMicroBurst("verify-missed-order");
         clearPendingAcceptHistory();
@@ -819,7 +847,8 @@ public class AutoClickerService extends AccessibilityService {
         } else if (now >= verifyUntilMs) {
           cancelVerify("pending-no-ui");
           finishRapidoMicroBurst("pending-no-ui");
-          // No UI Accept → no history (PendingIntent alone is not a confirmed tap)
+          // PendingIntent / no Accept UI is not a confirmed ride
+          noteAttemptUncertain(AcceptAttemptTracker.Evidence.VERIFY_TIMEOUT, "pending-no-ui");
           clearPendingAcceptHistory();
           tryContentIntentFallback("pending-no-ui");
           scheduleAcceptHuntPoll();
@@ -830,13 +859,20 @@ public class AutoClickerService extends AccessibilityService {
         }
       }
 
-      // Accept gone → confirm ONLY if we struck a live Accept this race
+      // Accept gone is race-complete, not ride-confirmed. Stronger evidence required.
       if (!acceptVisible) {
         clearStaleAcceptTapPoints("verify-accept-gone");
+        if (onTrip) {
+          acceptOutcomes.submit(AcceptAttemptTracker.Evidence.ON_TRIP_CHROME,
+              SystemClock.uptimeMillis());
+        }
         if (pendingHistoryValid && acceptSeenDuringVerify) {
+          noteAttemptUncertain(AcceptAttemptTracker.Evidence.ACCEPT_CONTROL_GONE,
+              onTrip ? "verify-on-trip-gone" : "verify-gone");
           disarmAfterAcceptSuccess(onTrip ? "verify-on-trip-gone" : "verify-gone");
         } else {
-          // No real Accept tap this race — do not write history / do not latch
+          noteAttemptUncertain(AcceptAttemptTracker.Evidence.ACCEPT_CONTROL_GONE,
+              "verify-gone-no-strike");
           cancelVerify("verify-gone-no-strike");
           finishRapidoMicroBurst("verify-gone-no-strike");
           clearPendingAcceptHistory();
@@ -852,6 +888,7 @@ public class AutoClickerService extends AccessibilityService {
           handler.postDelayed(this, VERIFY_POLL_MS);
         } else {
           Log.i(TAG, "VERIFY_MISS ola-oneshot acceptStillVisible=true");
+          noteAttemptUncertain(AcceptAttemptTracker.Evidence.VERIFY_TIMEOUT, "verify-miss-ola");
           cancelVerify("verify-miss-ola");
           finishRapidoMicroBurst("verify-miss-ola");
         }
@@ -905,6 +942,7 @@ public class AutoClickerService extends AccessibilityService {
       // Hold this card so the 1 ms hunt cannot click it again until it changes.
       Log.i(TAG, "VERIFY_MISS stay-armed acceptStillVisible=true onTripChrome="
           + driverOnTripChrome);
+      noteAttemptUncertain(AcceptAttemptTracker.Evidence.VERIFY_TIMEOUT, "verify-miss");
       holdSameCard(verifyCx, verifyCy, SAME_CARD_HOLD_AFTER_MISS_MS, "verify-miss");
       stopAlertSpray();
       refreshAccessibilityWindows("verify-miss");
@@ -1090,7 +1128,7 @@ public class AutoClickerService extends AccessibilityService {
           + " label=" + label
           + " @" + cx + "," + cy
           + " shizuku=" + ShizukuInput.isReady());
-      injectOlaAcceptAt(cx, cy, live, true);
+      injectOlaAcceptAt(cx, cy, live, false);
       try { live.recycle(); } catch (Exception ignored) {}
       scheduleAcceptHuntPollImmediate();
     }
@@ -1153,7 +1191,8 @@ public class AutoClickerService extends AccessibilityService {
 
   private boolean injectOlaAcceptAt(
       int cx, int cy, AccessibilityNodeInfo node, boolean forceUnlocked) {
-    if (!AutoClickerConfig.peekEnabled()) {
+    if (!AutoClickerConfig.isEnabled()) {
+      Log.w(TAG, "OLA_INJECT_ABORT not-authorized");
       return false;
     }
     if (cx <= 0 || cy <= 0) {
@@ -1207,17 +1246,21 @@ public class AutoClickerService extends AccessibilityService {
 
       TapHighlightOverlay.hideImmediate();
 
-      if (!ensureShizukuReady()) {
-        Log.w(TAG, "OLA_INJECT_ABORT shizuku-not-ready @" + cx + "," + cy
-            + " state=" + ShizukuInput.state(getApplicationContext()));
-        return false;
-      }
-
       // Text node sits on the top of a taller CTA — press into the button body
       int tapX = cx;
       int tapY = cy + Math.max(6, bh / 5);
       olaShizukuTapsThisRace++;
-      boolean ok = ShizukuInput.tapConfirmed(tapX, tapY, OLA_ONE_SHOT_TAP_MS);
+      boolean shizukuReady = ensureShizukuReady();
+      boolean ok = shizukuReady
+          && ShizukuInput.tapConfirmed(tapX, tapY, OLA_ONE_SHOT_TAP_MS);
+      // Ola ignores accessibility clicks. If Shizuku is down, press the same
+      // measured Accept center with a gesture so the overlay still lands.
+      if (!ok) {
+        ok = gestureTapRaw(tapX, tapY, OLA_ONE_SHOT_TAP_MS);
+        Log.w(TAG, "OLA_INJECT_GESTURE @" + tapX + "," + tapY
+            + " ok=" + ok
+            + " shizukuReady=" + shizukuReady);
+      }
 
       TapHighlightOverlay.showPoint(this, tapX, tapY, 10, 500L);
 
@@ -1227,12 +1270,22 @@ public class AutoClickerService extends AccessibilityService {
         handler.postDelayed(() -> {
           if (olaShizukuTapsThisRace >= OLA_MAX_SHIZUKU_TAPS) return;
           if (!acceptStillVisibleAnywhere()) return;
-          if (!ShizukuInput.isReady()) return;
           TapHighlightOverlay.hideImmediate();
           olaShizukuTapsThisRace++;
-          boolean retry = ShizukuInput.tapConfirmed(rx, ry, OLA_ONE_SHOT_TAP_MS);
+          boolean retry = ShizukuInput.isReady()
+              && ShizukuInput.tapConfirmed(rx, ry, OLA_ONE_SHOT_TAP_MS);
+          if (!retry) retry = gestureTapRaw(rx, ry, OLA_ONE_SHOT_TAP_MS);
           Log.w(TAG, "OLA_INJECT_RETRY @" + rx + "," + ry + " ok=" + retry);
         }, 240L);
+      }
+      // Slider zones ignore the first press. One more try at 5s only if Accept is still up.
+      if (!olaSawCountdownThisRace && olaAcceptFirstSeenMs > 0L
+          && olaShizukuTapsThisRace < OLA_MAX_SHIZUKU_TAPS) {
+        long safetyIn = OLA_UNLOCK_FROM_ALERT_MS
+            - (SystemClock.uptimeMillis() - olaAcceptFirstSeenMs);
+        if (safetyIn > 500L) {
+          handler.postDelayed(olaUnlockStrikeRunnable, safetyIn);
+        }
       }
 
       Log.w(TAG, "OLA_INJECT @" + tapX + "," + tapY
@@ -1242,7 +1295,7 @@ public class AutoClickerService extends AccessibilityService {
           + " n=" + olaShizukuTapsThisRace
           + " mode=shizuku-oneshot"
           + " label=" + label
-          + " shizuku=true"
+          + " shizuku=" + shizukuReady
           + " active=" + resolveActivePackage());
       return ok;
     } finally {
@@ -1279,6 +1332,7 @@ public class AutoClickerService extends AccessibilityService {
   private boolean ensureShizukuReady() {
     Context ctx = getApplicationContext();
     ShizukuInput.attach(ctx != null ? ctx : this);
+    ShizukuInput.recoverIfBinderAlive();
     return ShizukuInput.isReady();
   }
 
@@ -1322,12 +1376,17 @@ public class AutoClickerService extends AccessibilityService {
     String b = (Build.BRAND != null ? Build.BRAND : "").toLowerCase(Locale.US);
     String fp = (Build.FINGERPRINT != null ? Build.FINGERPRINT : "").toLowerCase(Locale.US);
     String disp = (Build.DISPLAY != null ? Build.DISPLAY : "").toLowerCase(Locale.US);
-    // Skins that delay a11y / swallow short taps
+    // Same Accept click on every OEM. Heavy skins only get a longer arm / NLS follow
+    // because they paint the overlay late or swallow a 1ms press.
+    // Covered: Samsung, Google, Motorola, Nothing, Nokia, Lava, Asus, Lenovo, Sony,
+    // Oppo, Realme, OnePlus, Xiaomi, Redmi, Poco, Vivo, iQOO, Huawei, Honor,
+    // Tecno, Infinix, itel, and other MediaTek skins.
     heavyOem = m.contains("oppo") || m.contains("realme") || m.contains("oneplus")
         || m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")
         || m.contains("vivo") || m.contains("iqoo") || m.contains("huawei")
         || m.contains("honor") || m.contains("tecno") || m.contains("infinix")
-        || m.contains("itel") || m.contains("transsion")
+        || m.contains("itel") || m.contains("transsion") || m.contains("mediatek")
+        || fp.contains("mediatek") || disp.contains("mediatek")
         || b.contains("oppo") || b.contains("realme") || b.contains("xiaomi")
         || b.contains("vivo") || b.contains("iqoo") || b.contains("redmi")
         || b.contains("poco") || b.contains("tecno") || b.contains("infinix")
@@ -1436,7 +1495,10 @@ public class AutoClickerService extends AccessibilityService {
 
   private void startAlertSpray(String pkg, long t0, String source) {
     if (pkg == null || !AutoClickerConfig.isCaptainRapidoPackage(pkg)) return;
-    if (!AutoClickerConfig.peekEnabled()) return;
+    if (!AutoClickerConfig.isEnabled()) {
+      Log.w(TAG, "ALERT_SPRAY_ABORT not-authorized");
+      return;
+    }
     if (sameCardHoldActive()) return;
 
     int x = cachedAcceptX;
@@ -1635,7 +1697,7 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   private void stopEngineForeground() {
-    if (AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled()) {
+    if (AutoClickerConfig.isEnabled()) {
       EngineKeepAlive.ensureStarted(this);
       return;
     }
@@ -1888,6 +1950,18 @@ public class AutoClickerService extends AccessibilityService {
         + " drop=" + drop + " mark=" + mark);
   }
 
+  /** New NLS after a miss: allow hunt. Does not fire pending-intent / spray. */
+  private void releaseCardHoldForNewNotificationSearch(String source) {
+    if (!sameCardHoldActive()) return;
+    struckCardUntilMs = 0L;
+    Log.i(TAG, "CARD_HOLD release nls-after-miss src=" + source);
+  }
+
+  private static boolean isNotificationRideSource(String source) {
+    if (source == null) return false;
+    return source.startsWith("NLS") || source.startsWith("A11yNotif");
+  }
+
   private void holdSameCard(int x, int y, long holdMs, String reason) {
     if (x <= 0 || y <= 0) {
       x = cachedAcceptX;
@@ -1900,6 +1974,7 @@ public class AutoClickerService extends AccessibilityService {
     struckCardDrop = lastRideDropKm;
     struckCardMark = lastCardMark != null ? lastCardMark : "";
     struckCardUntilMs = SystemClock.uptimeMillis() + Math.max(200L, holdMs);
+    struckCardFromMiss = reason != null && reason.contains("miss");
     Log.i(TAG, "CARD_HOLD " + reason
         + " @" + struckCardX + "," + struckCardY
         + " fare=" + struckCardFare
@@ -2183,6 +2258,7 @@ public class AutoClickerService extends AccessibilityService {
     breakRapidoCooldownForNewRide();
     long now = SystemClock.uptimeMillis();
     raceEmitted = false;
+    acceptOutcomes.beginNewOffer(now);
     if (!(rapidoBurstLock || verifyingAccept
         || racePhase == RacePhase.STRIKING
         || racePhase == RacePhase.VERIFYING
@@ -2219,11 +2295,22 @@ public class AutoClickerService extends AccessibilityService {
         try {
           root = w.getRoot();
           if (root == null) continue;
-          if (!allowAsRapidoWindow(packageOf(root), lastPkg)) continue;
+          String raw = packageOf(root);
+          if (raw != null && raw.equals(getPackageName())) continue;
+          boolean named = isRapidoPackageName(raw);
+          boolean nullPkg = raw == null || raw.isEmpty();
+          if (!named && !nullPkg) continue;
+          if (named && !allowAsRapidoWindow(raw, lastPkg)) continue;
+          if (nullPkg && !rootHasGenuineAcceptLabel(root)) continue;
           sawRapido = true;
           w.getBoundsInScreen(scratchRect);
           if (isFloatingBubbleBounds(scratchRect)) {
             noteBubbleWindow(scratchRect);
+            // Compact ride sheet with Accept is not the float icon.
+            if (rootHasGenuineAcceptLabel(root)) {
+              sawNonBubble = true;
+              break;
+            }
           } else {
             sawNonBubble = true;
             break;
@@ -2254,14 +2341,23 @@ public class AutoClickerService extends AccessibilityService {
         || racePhase == RacePhase.COOLDOWN) {
       return false;
     }
+    long now = SystemClock.uptimeMillis();
+    if (now - lastIdleCheckMs < 120L) return lastIdleCheck;
     String active = null;
     try {
       active = resolveActivePackage();
     } catch (Exception ignored) {
     }
-    if (active != null && isRapidoPackageName(active)) return false;
-    // Non-ride-app FG (or unknown): if only bubble → idle
-    return onlyRapidoSurfaceIsBubble();
+    boolean idle;
+    if (active != null && isRapidoPackageName(active)) {
+      idle = false;
+    } else {
+      // Non-ride-app FG (or unknown): if only bubble → idle
+      idle = onlyRapidoSurfaceIsBubble();
+    }
+    lastIdleCheckMs = now;
+    lastIdleCheck = idle;
+    return idle;
   }
 
   @Override
@@ -2297,6 +2393,7 @@ public class AutoClickerService extends AccessibilityService {
       clearPendingAcceptHistory();
       setRacePhase(RacePhase.IDLE, "service-connected");
       lastA11yEventMs = SystemClock.uptimeMillis();
+      AutoClickerConfig.noteEngineHeartbeat();
       lastHardRecoverMs = 0;
       handler.removeCallbacks(raceWatchdogRunnable);
       handler.postDelayed(raceWatchdogRunnable, RACE_WATCHDOG_MS);
@@ -2324,12 +2421,18 @@ public class AutoClickerService extends AccessibilityService {
   @Override
   public void onTaskRemoved(Intent rootIntent) {
     Log.w(TAG, "onTaskRemoved — Recents swipe; engine stays armed");
-    EngineKeepAlive.ensureStarted(this);
-    RecentsGuard.ensureStarted(this);
-    WatchdogAlarm.schedule(this);
-    if (engineIsOn()) {
-      startEngineForeground();
-    }
+    // Defer — synchronous startForegroundService here has caused OEM ANRs.
+    handler.post(() -> {
+      try {
+        EngineKeepAlive.ensureStarted(AutoClickerService.this);
+        WatchdogAlarm.schedule(AutoClickerService.this);
+        if (engineIsOn()) {
+          startEngineForeground();
+        }
+      } catch (Throwable t) {
+        Log.w(TAG, "onTaskRemoved rearm: " + t.getMessage());
+      }
+    });
     super.onTaskRemoved(rootIntent);
   }
 
@@ -2341,7 +2444,15 @@ public class AutoClickerService extends AccessibilityService {
         public void onReceive(Context ctx, Intent intent) {
           if (intent == null) return;
           if (!AutoClickerModule.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
-          final boolean en = intent.getBooleanExtra("enabled", false);
+          final long revision = intent.getLongExtra(ConfigSnapshot.EXTRA_CONFIG_REVISION, 0L);
+          final boolean requested = intent.getBooleanExtra(
+              ConfigSnapshot.EXTRA_REQUESTED_ENABLED,
+              intent.getBooleanExtra("enabled", false));
+          final boolean known = intent.getBooleanExtra(ConfigSnapshot.EXTRA_ENTITLEMENT_KNOWN, false);
+          final boolean active = intent.getBooleanExtra(ConfigSnapshot.EXTRA_ENTITLEMENT_ACTIVE, false);
+          final boolean deviceAllowed = intent.getBooleanExtra(
+              ConfigSnapshot.EXTRA_ENTITLEMENT_DEVICE_ALLOWED, true);
+          final long endMs = intent.getLongExtra(ConfigSnapshot.EXTRA_ENTITLEMENT_END_MS, 0L);
           final boolean nuclear = intent.getBooleanExtra(
               "nuclear_mode", AutoClickerConfig.peekNuclearMode());
           final int minPrice = intent.getIntExtra("min_price", AutoClickerConfig.getMinPrice());
@@ -2349,18 +2460,42 @@ public class AutoClickerService extends AccessibilityService {
           final float minPickup = intent.getFloatExtra("min_pickup", AutoClickerConfig.getMinPickup());
           final float maxPickup = intent.getFloatExtra("max_pickup", AutoClickerConfig.getMaxPickup());
           final float maxDrop = intent.getFloatExtra("max_drop", AutoClickerConfig.getMaxDrop());
-          Log.i(TAG, "CONFIG_BROADCAST_RX enabled=" + en + " nuclear=" + nuclear
-              + " min=" + minPrice + " maxFare=" + maxFare + " maxPickup=" + maxPickup);
+          Log.i(TAG, "CONFIG_BROADCAST_RX rev=" + revision
+              + " requested=" + requested
+              + " known=" + known
+              + " active=" + active
+              + " device=" + deviceAllowed
+              + " nuclear=" + nuclear
+              + " min=" + minPrice
+              + " maxFare=" + maxFare
+              + " maxPickup=" + maxPickup);
           handler.post(() -> {
-            AutoClickerConfig.applyEnabledFromBroadcast(en);
+            boolean applied;
+            if (revision > 0L) {
+              applied = AutoClickerConfig.applyConfigSnapshot(
+                  requested, known, active, deviceAllowed, endMs, revision,
+                  minPrice, maxFare, minPickup, maxPickup, maxDrop);
+            } else {
+              applied = AutoClickerConfig.refreshFromSidecarIfAhead();
+              Log.w(TAG, "CONFIG_BROADCAST_RX missing-revision sidecar=" + applied);
+            }
             AutoClickerConfig.applyNuclearFromBroadcast(nuclear);
-            AutoClickerConfig.applyFiltersFromBroadcast(minPrice, maxFare, minPickup, maxPickup, maxDrop);
-            AutoClickerConfig.markBroadcastApplied();
-            if (!en) {
+            invalidateEngineOnCache();
+            boolean effective = AutoClickerConfig.isEnabled();
+            Log.i(TAG, "CONFIG_EFFECTIVE_STATE applied=" + applied
+                + " requested=" + AutoClickerConfig.isRequestedEnabled()
+                + " entitled=" + AutoClickerConfig.isEntitled()
+                + " effective=" + effective
+                + " rev=" + AutoClickerConfig.getAppliedRevision());
+            if (!effective) {
               haltEngineMasterOff("config-broadcast-off");
+              AutoClickerModule.emitRuntimeStatus(getApplicationContext(),
+                  "config-snapshot:" + AutoClickerConfig.getAppliedRevision());
               return;
             }
             resumeEngineMasterOn("config-broadcast");
+            AutoClickerModule.emitRuntimeStatus(getApplicationContext(),
+                "config-snapshot:" + AutoClickerConfig.getAppliedRevision());
           });
         }
       };
@@ -2390,7 +2525,10 @@ public class AutoClickerService extends AccessibilityService {
 
   @Override
   public void onDestroy() {
-    final boolean keep = AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled();
+    // Requested ON survives OEM recycle (Recents swipe). isEnabled() can
+    // briefly fail snapshot freshness while the UI process is dying.
+    final boolean keep = AutoClickerConfig.isRequestedEnabled()
+        || AutoClickerConfig.isEnabled();
     try {
       unregisterConfigChangedReceiver();
       stopAcceptHuntPoll("destroy");
@@ -2420,9 +2558,12 @@ public class AutoClickerService extends AccessibilityService {
       if (keep) {
         EngineKeepAlive.ensureStarted(getApplicationContext());
         WatchdogAlarm.schedule(getApplicationContext());
+        Log.w(TAG, "A11Y_DESTROY recycle — keep auto-accept ON");
+      } else {
+        AutoClickerConfig.clearEngineHeartbeat();
+        AutoClickerModule.emitRuntimeStatus(getApplicationContext(), "accessibility-disconnected");
       }
       if (sInstance == this) sInstance = null;
-      AutoClickerModule.emitRuntimeStatus(getApplicationContext(), "accessibility-disconnected");
       super.onDestroy();
     }
   }
@@ -2437,10 +2578,9 @@ public class AutoClickerService extends AccessibilityService {
     if (!engineIsOn()) return false;
     if (shouldIdleForBubbleOnly()) return false;
     if (isRaceActive() || hasLiveRapidoOverlayCard()) return true;
-    if (isStandbyHunting() || hasNonBubbleRapidoWindow()) return true;
-    if (!rapidoForeground) return false;
-    // Ola + Rapido FG: label-only hunt (no geometry). Ola in-app cards have no NLS.
-    return true;
+    if (isStandbyHunting() || olaAcceptFirstSeenMs > 0L) return true;
+    // Map-open with no card must not poll. A 1ms getWindows loop is the ANR.
+    return false;
   }
 
   /** True while racing a ride alert / mid-strike / verify. */
@@ -2527,9 +2667,7 @@ public class AutoClickerService extends AccessibilityService {
       if (probeUnarmedDriverOverlayAccept(t0)) return;
       return;
     }
-    String pkg = lastPkg != null && isRapidoPackageName(lastPkg)
-        ? lastPkg : AutoClickerConfig.PKG_OLA_DRIVER;
-    huntAccept(pkg, t0, "OverlayProbe");
+    huntAccept(huntHintPkg(), t0, "OverlayProbe");
   }
 
   /**
@@ -2557,7 +2695,6 @@ public class AutoClickerService extends AccessibilityService {
       try {
         hit.node.getBoundsInScreen(scratchRect);
         if (!scratchRect.isEmpty()) {
-          TapHighlightOverlay.showPoint(this, scratchRect.centerX(), scratchRect.centerY(), 28, 1200L);
           Log.w(TAG, "OVERLAY_ACCEPT_SIGHT @" + scratchRect.centerX() + "," + scratchRect.centerY()
               + " pkg=" + pkg + " label=" + nodeTextCs(hit.node));
         }
@@ -2587,9 +2724,17 @@ public class AutoClickerService extends AccessibilityService {
             root = w.getRoot();
             if (root == null) continue;
             String p = packageOf(root);
-            if (!isRapidoPackageName(p)) continue;
+            if (p != null && p.equals(getPackageName())) continue;
+            boolean named = isRapidoPackageName(p);
+            boolean nullPkg = p == null || p.isEmpty();
+            if (!named && !nullPkg) continue;
+            if (nullPkg && !rootHasGenuineAcceptLabel(root)) continue;
             w.getBoundsInScreen(scratchRect2);
             if (!isFloatingBubbleBounds(scratchRect2)) {
+              hit = true;
+              break;
+            }
+            if (rootHasGenuineAcceptLabel(root)) {
               hit = true;
               break;
             }
@@ -2623,7 +2768,7 @@ public class AutoClickerService extends AccessibilityService {
     // Race hot path: near-FG speed. Standby / Ola FG idle uses a slower label poll.
     long delay;
     if (isRaceActive()
-        || (rapidoForeground && !AutoClickerConfig.isOlaPackage(lastPkg))) {
+        || olaAcceptFirstSeenMs > 0L) {
       delay = acceptHuntPollMs;
     } else {
       delay = STANDBY_HUNT_POLL_MS;
@@ -2669,6 +2814,12 @@ public class AutoClickerService extends AccessibilityService {
 
   private boolean isRapidoPackageName(String pkg) {
     return AutoClickerConfig.isRapidoPackage(pkg);
+  }
+
+  /** Last actionable Ola/Rapido package. Detection-only ids never become hunt context. */
+  private String huntHintPkg() {
+    if (lastPkg != null && AutoClickerConfig.isTargetPackage(lastPkg)) return lastPkg;
+    return AutoClickerConfig.PKG_OLA_DRIVER;
   }
 
   /** Live overlay card bounds from a Rapido window — not stale armed/sticky alone. */
@@ -2812,8 +2963,8 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   /**
-   * After VERIFY confirms Accept gone: enter short COOLDOWN, then IDLE.
-   * Fresh NLS after COOLDOWN can arm again even while still on-trip.
+   * After VERIFY sees Accept gone: enter short COOLDOWN, then IDLE.
+   * This stops the race. It is not proof the ride was accepted.
    */
   private void disarmAfterAcceptSuccess(String reason) {
     long now = SystemClock.uptimeMillis();
@@ -3180,6 +3331,11 @@ public class AutoClickerService extends AccessibilityService {
    * a Rapido overlay/bubble fired an a11y event while the user is on WhatsApp.
    */
   private void syncRapidoForegroundFromActive(String reason) {
+    long now = SystemClock.uptimeMillis();
+    if (rapidoForeground && now - lastFgSyncMs < FG_SYNC_MIN_GAP_MS) {
+      return;
+    }
+    lastFgSyncMs = now;
     String active = null;
     try {
       active = resolveActivePackage();
@@ -3201,15 +3357,24 @@ public class AutoClickerService extends AccessibilityService {
       return;
     }
     if (active != null) {
-      setRapidoForeground(false, reason + "/" + active);
+      setRapidoForeground(false, reason + "/" + active, true);
     }
   }
 
   private void setRapidoForeground(boolean fg, String reason) {
+    setRapidoForeground(fg, reason, false);
+  }
+
+  /**
+   * @param skipWindowScan when true, do not call {@link #hasNonBubbleRapidoWindow()}
+   *     on the hot path (Rapido map CONTENT_CHANGED storms caused ANR).
+   */
+  private void setRapidoForeground(boolean fg, String reason, boolean skipWindowScan) {
     if (rapidoForeground == fg) {
-      if (fg || isRaceActive() || isStandbyHunting() || hasNonBubbleRapidoWindow()) {
+      if (fg || isRaceActive() || isStandbyHunting()
+          || (!skipWindowScan && hasNonBubbleRapidoWindow())) {
         scheduleAcceptHuntPoll();
-      } else {
+      } else if (!fg && !skipWindowScan) {
         stopAcceptHuntPoll(reason + "/already-bg");
         clearStaleAcceptTapPoints(reason + "/already-bg");
         clearCachedAcceptPoint(reason + "/already-bg");
@@ -3226,12 +3391,15 @@ public class AutoClickerService extends AccessibilityService {
       Log.i(TAG, "FG_RAPIDO false (" + reason + ") armed=" + isRaceArmed()
           + " standby=" + isStandbyHunting());
       // Maps / nav after accept: do NOT kill hunt — along-route cards still appear
-      if (isRaceActive() || isStandbyHunting() || hasNonBubbleRapidoWindow()) {
+      if (isRaceActive() || isStandbyHunting()
+          || (!skipWindowScan && hasNonBubbleRapidoWindow())) {
         scheduleAcceptHuntPoll();
-      } else {
+      } else if (!skipWindowScan) {
         stopAcceptHuntPoll(reason);
         clearStaleAcceptTapPoints(reason);
         clearCachedAcceptPoint(reason);
+      } else {
+        scheduleAcceptHuntPoll();
       }
     }
   }
@@ -3340,8 +3508,7 @@ public class AutoClickerService extends AccessibilityService {
     handler.removeCallbacks(raceArmExpireRunnable);
     handler.postDelayed(raceArmExpireRunnable, Math.max(30, raceArmedUntilMs - now + 30));
     scheduleAcceptHuntPoll();
-    // If this signal is Ola (or unknown until Accept), schedule unlock fire at +5s
-    scheduleOlaUnlockStrikeIfNeeded(lastPkg);
+    // Do not schedule Ola Shizuku from NLS time. Unlock starts at card sight.
   }
 
   /** Post Ola strike when the on-screen slider should finish (not NLS time). */
@@ -3353,17 +3520,22 @@ public class AutoClickerService extends AccessibilityService {
     if (pkg == null || !AutoClickerConfig.isOlaPackage(pkg)) return;
     if (olaShizukuTapsThisRace >= OLA_MAX_SHIZUKU_TAPS) return;
     long now = SystemClock.uptimeMillis();
-    long start = olaAcceptFirstSeenMs > 0 ? olaAcceptFirstSeenMs : raceArmedFromMs;
-    if (start <= 0) return;
+    long start = olaAcceptFirstSeenMs;
+    if (start <= 0) {
+      Log.i(TAG, "OLA_UNLOCK_WAIT_FOR_CARD pkg=" + pkg
+          + " alertAge=" + (raceArmedFromMs > 0 ? (now - raceArmedFromMs) : -1));
+      return;
+    }
 
     long candidate;
     if (countdownLeft > 0) {
       candidate = now + countdownLeft * 1000L + OLA_UNLOCK_GRACE_MS;
     } else if (olaSawCountdownThisRace) {
       // Numbers just cleared — Accept is revealed now
-      candidate = now + 80L;
+      candidate = now + 40L;
     } else {
-      candidate = start + OLA_UNLOCK_FROM_ALERT_MS + OLA_UNLOCK_GRACE_MS;
+      // No "Accept in N" on this card. Zone is already tappable — do not wait 5s.
+      candidate = now + 16L;
     }
     if (candidate < now) candidate = now;
     // Do not push the fire later if a closer time is already scheduled
@@ -3425,7 +3597,7 @@ public class AutoClickerService extends AccessibilityService {
       String source
   ) {
     final AutoClickerService svc = sInstance;
-    if (!AutoClickerConfig.peekEnabled() && !AutoClickerConfig.isEnabled()) return;
+    if (!AutoClickerConfig.isEnabled()) return;
     lastRideSignalUptimeMs = tReceive > 0 ? tReceive : SystemClock.uptimeMillis();
     if (packageName == null || !AutoClickerConfig.isPackageMonitored(packageName)) return;
     if (isSpamText(notifText)) {
@@ -3467,16 +3639,34 @@ public class AutoClickerService extends AccessibilityService {
     }
     // Observational only — never gates filters, arming, or accept.
     OfferObservationSink.publishFromText(packageName, notifText, source, tReceive);
-    // Same heads-up again — do not clear cooldown or spray the button we just took.
-    if (svc.sameCardHoldActive()
-        && !svc.newOfferBreaksCardHold(signalFare, signalPickup, signalDrop, signalMark)) {
+    if (AutoClickerConfig.tapTargetOf(packageName) == AutoClickerConfig.TapTarget.NONE) {
+      Log.i(TAG, "DETECT_ONLY no-act pkg=" + packageName + " src=" + source);
+      return;
+    }
+    // Same-card hold: a new notification may search, but must not blindly
+    // pending-intent / spray. skip-strike still guards the last click pixel.
+    boolean holdActive = svc.sameCardHoldActive();
+    boolean knownNewOffer = holdActive
+        && svc.newOfferBreaksCardHold(signalFare, signalPickup, signalDrop, signalMark);
+    boolean searchThroughHold = holdActive && !knownNewOffer
+        && isNotificationRideSource(source);
+    if (holdActive && !knownNewOffer && !searchThroughHold) {
       Log.i(TAG, "CARD_HOLD skip-duplicate src=" + source
           + " fare=" + signalFare
           + " pickup=" + signalPickup
           + " drop=" + signalDrop);
       return;
     }
-    svc.releaseCardHoldIfNewOffer(signalFare, signalPickup, signalDrop, signalMark, source);
+    if (knownNewOffer) {
+      svc.releaseCardHoldIfNewOffer(signalFare, signalPickup, signalDrop, signalMark, source);
+    } else if (searchThroughHold && svc.struckCardFromMiss) {
+      svc.releaseCardHoldForNewNotificationSearch(source);
+    } else if (searchThroughHold) {
+      Log.i(TAG, "CARD_HOLD nls-search-only src=" + source
+          + " fare=" + signalFare
+          + " pickup=" + signalPickup
+          + " — hunt allowed; skip-strike still guards the last click");
+    }
 
     // Stamp ride signal even if we must defer arm (back-to-back)
     svc.lastPkg = packageName;
@@ -3491,16 +3681,16 @@ public class AutoClickerService extends AccessibilityService {
     // setup so no cache or binder work delays the fastest available channel.
     if (captain) {
       svc.breakRapidoCooldownForNewRide();
-      if (!rapidoFiltersOn) {
+      if (!rapidoFiltersOn && !searchThroughHold) {
         actionOk = tryFireAcceptPendingIntent(notification, notifText, tReceive, source);
       }
-      if (filtersOk) {
+      if (filtersOk && !searchThroughHold) {
         svc.firePredictiveRapidoTap(packageName, tReceive, source);
       }
     } else if (svc.isRapidoInteractionBlocked()) {
       svc.deferRideSignal(packageName, notification, notifText, tReceive, source);
       return;
-    } else {
+    } else if (!searchThroughHold) {
       actionOk = tryFireAcceptPendingIntent(notification, notifText, tReceive, source);
     }
 
@@ -3519,6 +3709,7 @@ public class AutoClickerService extends AccessibilityService {
       svc.recoverIfRaceStuck("ride-signal");
       svc.acceptSuccessLatch = false;
       svc.raceEmitted = false;
+      svc.acceptOutcomes.beginNewOffer(SystemClock.uptimeMillis());
       svc.lastRideFare = 0;
       svc.lastRidePickupKm = 0f;
       svc.lastRideDropKm = 0f;
@@ -3581,7 +3772,7 @@ public class AutoClickerService extends AccessibilityService {
       long tReceive,
       String source
   ) {
-    if (n == null || (!AutoClickerConfig.peekEnabled() && !AutoClickerConfig.isEnabled())) {
+    if (n == null || !AutoClickerConfig.isEnabled()) {
       return false;
     }
     // Static NLS path — same fare/pickup rules as UI taps (unknown → allow)
@@ -3714,7 +3905,7 @@ public class AutoClickerService extends AccessibilityService {
       } else if (!ola) {
         if (!isRideAlert(text, n) && !hasTripOfferCue(text)) return;
       }
-      lastPkg = pkg;
+      // Do not stamp lastPkg here. DETECT_ONLY must not become hunt context.
       onRideSignal(pkg, n, text, t0, "A11yNotif");
       return;
     }
@@ -3737,9 +3928,49 @@ public class AutoClickerService extends AccessibilityService {
         && (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
             || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
             || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED)) {
-      if (isRapidoHunt) lastPkg = pkg;
-      syncRapidoForegroundFromActive("hot-path");
+      if (isRapidoHunt) {
+        lastPkg = pkg;
+        setRapidoForeground(true, "event-pkg");
+      } else {
+        syncRapidoForegroundFromActive("hot-path");
+      }
+      if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+        long gap = heavyOem ? 48L : 32L;
+        if (t0 - lastA11yCoalesceMs < gap) {
+          if (isRaceActive() || olaAcceptFirstSeenMs > 0L) scheduleAcceptHuntPoll();
+          return;
+        }
+        lastA11yCoalesceMs = t0;
+      }
+      // Open map floods content events. Do not walk windows unless a ride is hot
+      // or a new window appeared — that loop is the "isn't responding" dialog.
+      boolean rideHot = isRaceActive() || isStandbyHunting()
+          || olaAcceptFirstSeenMs > 0L || hasLiveRapidoOverlayCard();
+      if (!rideHot && !windowsChanged) {
+        AccessibilityNodeInfo idleSource = null;
+        try {
+          idleSource = event.getSource();
+          if (idleSource != null && canStartRapidoBurst()
+              && (isRealAcceptLabel(nodeTextCs(idleSource))
+                  || viewIdLooksLikeAccept(idleSource))) {
+            smartClickAccept(
+                AccessibilityNodeInfo.obtain(idleSource),
+                resolveRapidoPkg(idleSource, pkg),
+                "SrcInstant",
+                t0);
+          }
+        } catch (Exception ignored) {
+        } finally {
+          if (idleSource != null) {
+            try { idleSource.recycle(); } catch (Exception ignored) {}
+          }
+        }
+        return;
+      }
       if (shouldIdleForBubbleOnly()) {
+        // Ola/Rapido sheet over WhatsApp/Maps is often bubble-sized. Search the
+        // Accept label before giving up.
+        tryNuclearOverlayAccept(t0, windowsChanged);
         return;
       }
       if (!mayHuntAccept() || !canStartRapidoBurst()) {
@@ -3815,15 +4046,13 @@ public class AutoClickerService extends AccessibilityService {
       }
       // Captain FG (home OR nav/map): Accept often on sibling sheet — multi-window
       // Event-driven only; poll starts after arm/ui-sighted, not forever idle.
-      if (rapidoForeground || isRaceActive() || hasLiveRapidoOverlayCard()
-          || isStandbyHunting()) {
+      if (rideHot) {
         if (huntAccept(lastPkg, t0, "FgMultiWin")) {
           if (isRaceActive() || isStandbyHunting()) scheduleAcceptHuntPoll();
           return;
         }
       }
-      // Keep poll while racing, standby, or Captain FG
-      if (isRaceActive() || isStandbyHunting() || rapidoForeground) {
+      if (rideHot) {
         scheduleAcceptHuntPoll();
       }
       } // end mayHuntAccept
@@ -3831,26 +4060,16 @@ public class AutoClickerService extends AccessibilityService {
     }
 
     // Strict package router: non-Rapido → return immediately
-    // Exception: thin overlay Accept hunt when NLS-armed OR live overlay card
+    // Nuclear: a genuine Accept overlay is clicked even if WhatsApp/Maps/Home is FG.
     if (!isRapidoHunt && !rapidoContext) {
+      if (tryNuclearOverlayAccept(t0, windowsChanged)) return;
       if (windowsChanged) {
         String active = resolveActivePackage();
         if (active != null && isTransientChromePackage(active)) {
-          // Shade/heads-up — do not disarm FG hunt
           if (isRaceActive()) scheduleAcceptHuntPoll();
         } else if (active != null && !isRapidoPackageName(active)) {
-          setRapidoForeground(false, "left/" + active);
+          setRapidoForeground(false, "left/" + active, true);
         }
-      }
-      // Race, standby, or a live ride sheet over Maps/Home — never require NLS
-      if ((isRaceActive() || isStandbyHunting() || hasNonBubbleRapidoWindow())
-          && !shouldIdleForBubbleOnly()) {
-        String huntPkg = lastPkg != null && isRapidoPackageName(lastPkg)
-            ? lastPkg : AutoClickerConfig.PKG_OLA_DRIVER;
-        huntAccept(huntPkg, t0, "ThinOverlay");
-      } else if (!isRapidoInteractionBlocked()
-          && !shouldIdleForBubbleOnly()) {
-        sheetOverlayProbe(t0);
       }
       return;
     }
@@ -3897,7 +4116,7 @@ public class AutoClickerService extends AccessibilityService {
     final AutoClickerService svc = sInstance;
     if (svc == null) return;
     svc.handler.post(() -> {
-      if (!AutoClickerConfig.peekEnabled()) {
+      if (!AutoClickerConfig.isEnabled()) {
         svc.haltEngineMasterOff("master-off");
         AutoClickerModule.emitRuntimeStatus(svc.getApplicationContext(), "engine-stopped");
         return;
@@ -3907,9 +4126,23 @@ public class AutoClickerService extends AccessibilityService {
     });
   }
 
-  /** Auto-accept is ON in this process (peek) or on disk (recovers missed broadcast). */
+  private void invalidateEngineOnCache() {
+    cachedEngineOnAtMs = 0L;
+  }
+
+  /**
+   * Hot-path gate. Full disk/sidecar auth at most ~once per second — not on
+   * every WINDOW_CONTENT_CHANGED (that caused ANR + slow Rapido on OEM skins).
+   */
   private boolean engineIsOn() {
-    return AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled();
+    long now = SystemClock.uptimeMillis();
+    if (cachedEngineOnAtMs > 0 && now - cachedEngineOnAtMs < ENGINE_ON_CACHE_MS) {
+      return cachedEngineOn;
+    }
+    boolean on = AutoClickerConfig.isEnabled();
+    cachedEngineOn = on;
+    cachedEngineOnAtMs = now;
+    return on;
   }
 
   private boolean isStandbyHunting() {
@@ -3930,6 +4163,7 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   private void resumeEngineMasterOn(String reason) {
+    invalidateEngineOnCache();
     engineHaltedForMasterOff = false;
     ensureWatchdogRunning();
     EngineKeepAlive.ensureStarted(this);
@@ -3956,6 +4190,8 @@ public class AutoClickerService extends AccessibilityService {
     standbyHuntUntilMs = 0;
     if (engineHaltedForMasterOff) return;
     engineHaltedForMasterOff = true;
+    cachedEngineOn = false;
+    cachedEngineOnAtMs = SystemClock.uptimeMillis();
     cancelVerify(reason);
     finishRapidoMicroBurst(reason);
     stopAcceptHuntPoll(reason);
@@ -3967,6 +4203,29 @@ public class AutoClickerService extends AccessibilityService {
     TapHighlightOverlay.hideImmediate();
     syncEngineForeground();
     Log.i(TAG, "ENGINE_HALT " + reason + " auto-accept=OFF");
+  }
+
+  /**
+   * Fastest legal overlay path. Works over any foreground app.
+   * Still requires a real Accept label — never a blind or geometry tap.
+   * Window changes always search. Content storms only search while a ride
+   * was just armed, so WhatsApp typing cannot ANR the engine.
+   */
+  private boolean tryNuclearOverlayAccept(long t0, boolean windowsChanged) {
+    if (!AutoClickerConfig.isNuclearMode()) return false;
+    if (isRapidoInteractionBlocked()) return false;
+    boolean recentSignal = lastRideSignalUptimeMs > 0
+        && t0 - lastRideSignalUptimeMs < 8000L;
+    boolean olaCard = olaAcceptFirstSeenMs > 0L
+        && t0 - olaAcceptFirstSeenMs < 12000L;
+    boolean hot = isRaceActive() || isStandbyHunting() || recentSignal || olaCard;
+    if (!hot) return false;
+    if (t0 - lastNuclearOverlayMs < (heavyOem ? 64L : 40L)) {
+      if (isRaceActive() || recentSignal || olaCard) scheduleAcceptHuntPoll();
+      return true;
+    }
+    lastNuclearOverlayMs = t0;
+    return huntAccept(huntHintPkg(), t0, "NuclearOverlay");
   }
 
   private void routePackage(String pkg, AccessibilityNodeInfo root, long t0) {
@@ -3985,17 +4244,24 @@ public class AutoClickerService extends AccessibilityService {
    *                 NLS 1ms spray is not blocked on ColorOS tree walks.
    */
   private boolean huntAccept(String hintPkg, long t0, String source, boolean fastOnly) {
-    recoverIfRaceStuck("hunt/" + source);
-    if (!mayHuntAccept()) return false;
-    if (!engineIsOn()) return false;
-    if (!canStartRapidoBurst()) {
+    if (t0 - lastRecoverCheckMs >= RECOVER_CHECK_MIN_GAP_MS) {
+      lastRecoverCheckMs = t0;
+      recoverIfRaceStuck("hunt/" + source);
+    }
+    boolean nuclear = "NuclearOverlay".equals(source);
+    if (!engineIsOn() || engineHaltedForMasterOff) return false;
+    // Nuclear still searches a real Accept over any foreground app. Bubble-only
+    // idle was dropping Ola sheets before the label was read.
+    if (!nuclear && !mayHuntAccept()) return false;
+    if (!canStartRapidoBurst() && !(nuclear && AutoClickerConfig.isOlaPackage(
+        hintPkg != null ? hintPkg : lastPkg))) {
       if (racePhase != RacePhase.VERIFYING && racePhase != RacePhase.STRIKING
           && racePhase != RacePhase.COOLDOWN) {
         logBlocked("hunt/" + source, "phase=" + racePhase);
       }
       return false;
     }
-    if (shouldIdleForBubbleOnly()) {
+    if (!nuclear && shouldIdleForBubbleOnly()) {
       logBlocked("hunt/" + source, "bubble-only");
       return false;
     }
@@ -4016,7 +4282,7 @@ public class AutoClickerService extends AccessibilityService {
     }
 
     // Multi-window when FG / armed / live overlay — never idle Captain chrome spray
-    final boolean forceWindowHunt = isRaceActive() && !rapidoFg;
+    final boolean forceWindowHunt = nuclear || (isRaceActive() && !rapidoFg);
     final boolean huntActiveRoot = rapidoFg || isRaceArmed() || racePhase == RacePhase.ARMED
         || racePhase == RacePhase.VERIFYING;
     final boolean huntMulti = huntActiveRoot || hasLiveRapidoOverlayCard() || forceWindowHunt;
@@ -4120,9 +4386,34 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   /**
-   * Scan every Rapido window for Accept text. Skips bubble-sized windows before findByText.
-   * Prefers overlay / sheet windows when not FG; when FG accepts any non-bubble hit.
-   * Wide sheets (≥50% / ≥280dp) kept only when they contain Accept.
+   * Real Accept text/id only. Icon-only / empty trees return null.
+   * Caller owns the returned node.
+   */
+  private AccessibilityNodeInfo findGenuineAcceptLabel(AccessibilityNodeInfo root) {
+    if (root == null) return null;
+    AccessibilityNodeInfo candidate = findAcceptFast(root);
+    if (candidate == null) candidate = findAcceptByViewId(root);
+    if (candidate == null) candidate = findAcceptLabelInRoot(root);
+    if (candidate == null) return null;
+    if (!isRealAcceptLabel(nodeTextCs(candidate)) && !viewIdLooksLikeAccept(candidate)) {
+      try { candidate.recycle(); } catch (Exception ignored) {}
+      return null;
+    }
+    return candidate;
+  }
+
+  private boolean rootHasGenuineAcceptLabel(AccessibilityNodeInfo root) {
+    AccessibilityNodeInfo n = findGenuineAcceptLabel(root);
+    if (n == null) return false;
+    try { n.recycle(); } catch (Exception ignored) {}
+    return true;
+  }
+
+  /**
+   * Scan Rapido/Ola windows for a genuine Accept label.
+   * Compact OEM sheets are searched before bubble-reject; icon-only windows
+   * still skip. Null packageName is kept only when Accept text is present.
+   * Captain FG still takes the first Accept (sheet or main).
    */
   private HuntHit findAcceptAcrossRapidoWindows(String hintPkg, boolean rapidoFg) {
     AccessibilityNodeInfo hit = null;
@@ -4137,13 +4428,8 @@ public class AutoClickerService extends AccessibilityService {
         try {
           try {
             w.getBoundsInScreen(scratchRect2);
-            // Idle: skip float-icon windows. Armed race: still search — many OEMs
-            // paint the ride Accept sheet at "bubble" size and we must find Accept.
             if (isFloatingBubbleBounds(scratchRect2)) {
               noteBubbleWindow(scratchRect2);
-              if (!isAcceptRaceHot() && !rapidoFg) {
-                continue;
-              }
             }
           } catch (Exception ignored) {
           }
@@ -4151,46 +4437,33 @@ public class AutoClickerService extends AccessibilityService {
           if (root == null) continue;
           String raw = packageOf(root);
           if (raw != null && raw.equals(getPackageName())) continue;
-          if (!allowAsRapidoWindow(raw, hintPkg)) continue;
-          String p = resolveRapidoPkg(root, hintPkg);
-          boolean prefer = isLikelyOverlayWindow(w) || isRideCardSizedBounds(scratchRect2);
+          boolean nullPkg = raw == null || raw.isEmpty();
+          if (!nullPkg && !isRapidoPackageName(raw)) continue;
+          if (!nullPkg && !allowAsRapidoWindow(raw, hintPkg)) continue;
 
-          // REAL Accept text/label only — heuristics caused random Captain taps
-          AccessibilityNodeInfo candidate = findAcceptFast(root);
-          if (candidate == null) {
-            candidate = findAcceptByViewId(root);
-          }
-          if (candidate == null) {
-            candidate = findAcceptLabelInRoot(root);
-          }
+          // Search first. No Accept → float icon / chrome, drop.
+          AccessibilityNodeInfo candidate = findGenuineAcceptLabel(root);
           if (candidate == null) continue;
 
-          // Drop tiny float-icon hits unless armed / FG
-          try {
-            AccessibilityWindowInfo nw = candidate.getWindow();
-            if (nw != null) {
-              nw.getBoundsInScreen(scratchRect);
-              if (isFloatingBubbleBounds(scratchRect)
-                  && !isAcceptRaceHot()
-                  && !rapidoFg) {
-                noteBubbleWindow(scratchRect);
-                candidate.recycle();
-                continue;
-              }
-            }
-          } catch (Exception ignored) {
+          String p = resolveRapidoPkg(root, hintPkg);
+          if (p == null || p.isEmpty()) {
+            p = hintPkg != null ? hintPkg : lastPkg;
           }
-          if (isFloatingBubbleNode(candidate)
-              && !isAcceptRaceHot()
-              && !rapidoFg) {
-            candidate.recycle();
-            continue;
-          }
+          boolean prefer = isLikelyOverlayWindow(w) || isRideCardSizedBounds(scratchRect2);
 
           if (hit != null) hit.recycle();
           hit = candidate;
           hitPkg = p;
           fromOverlay = prefer || !rapidoFg;
+          long nowLog = SystemClock.uptimeMillis();
+          if (nowLog - lastOverlayHuntLogMs > 700L) {
+            lastOverlayHuntLogMs = nowLog;
+            Log.i(TAG, "OVERLAY_HUNT_HIT pkg=" + p
+                + " overlay=" + fromOverlay
+                + " bubble=" + isFloatingBubbleBounds(scratchRect2)
+                + " size=" + scratchRect2.width() + "x" + scratchRect2.height()
+                + " fg=" + rapidoFg);
+          }
           // Prefer overlay/sheet; when FG take first Accept (sheet or main)
           if (prefer || rapidoFg) break;
         } finally {
@@ -4987,6 +5260,9 @@ public class AutoClickerService extends AccessibilityService {
     rapidoBurstFirstOk = clicked || gestOk;
     if (rapidoBurstFirstOk) {
       stashPendingAcceptHistory(pkg, findToClick);
+    } else {
+      acceptOutcomes.noteDispatchFailed(SystemClock.uptimeMillis());
+      Log.i(TAG, "ACCEPT_DISPATCH_FAIL target=rapido id=" + acceptOutcomes.attemptId());
     }
     beginVerify(pkg, tag, findAt, cx, cy, false);
 
@@ -5126,13 +5402,6 @@ public class AutoClickerService extends AccessibilityService {
       return false;
     }
 
-    if (!ensureShizukuReady()) {
-      Log.w(TAG, "OLA_STRIKE_ABORT shizuku-not-ready @" + cx + "," + cy
-          + " state=" + ShizukuInput.state(getApplicationContext()));
-      try { node.recycle(); } catch (Exception ignored) {}
-      return false;
-    }
-
     AccessibilityNodeInfo clickTarget = resolveAcceptClickTarget(node);
     if (clickTarget == null) {
       clickTarget = AccessibilityNodeInfo.obtain(node);
@@ -5154,7 +5423,8 @@ public class AutoClickerService extends AccessibilityService {
     rapidoBurstX = cx;
     rapidoBurstY = cy;
 
-    boolean ok = injectOlaAcceptAt(cx, cy, clickTarget, true);
+    if (olaAcceptFirstSeenMs <= 0L) olaAcceptFirstSeenMs = SystemClock.uptimeMillis();
+    boolean ok = injectOlaAcceptAt(cx, cy, clickTarget, false);
 
     node.recycle();
     handler.removeCallbacks(olaUnlockStrikeRunnable);
@@ -5170,6 +5440,9 @@ public class AutoClickerService extends AccessibilityService {
 
     if (ok) {
       stashPendingAcceptHistory(usePkg, (int) (SystemClock.uptimeMillis() - findAt));
+    } else {
+      acceptOutcomes.noteDispatchFailed(SystemClock.uptimeMillis());
+      Log.i(TAG, "ACCEPT_DISPATCH_FAIL target=ola id=" + acceptOutcomes.attemptId());
     }
     beginVerify(usePkg, tag, findAt, cx, cy, false);
     if (clickTarget != null) {
@@ -5466,75 +5739,22 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   private static double parseRapidoPrice(String dump) {
-    Matcher combo = PRICE_COMBO.matcher(dump);
-    if (combo.find()) {
-      return parseLooseDouble(combo.group(1)) + parseLooseDouble(combo.group(2));
-    }
-    Matcher single = PRICE_SINGLE.matcher(dump);
-    if (single.find()) {
-      return parseLooseDouble(single.group(1));
-    }
-    // Fallback: strip to digits after rupee-like
-    Matcher any = PRICE_ANY.matcher(dump);
-    if (any.find()) return parseLooseDouble(any.group(1));
-    return 0;
+    return OfferTextParser.parseRapidoPrice(dump);
   }
 
   /** Drop km: labeled drop first, else the second on-screen distance. */
   private static float parseDropKm(String dump) {
-    if (dump == null || dump.isEmpty()) return 0f;
-    Matcher labeled = DROP_DIST.matcher(dump);
-    if (labeled.find()) {
-      return distToKm(labeled.group(1), labeled.group(2));
-    }
-    List<Float> kms = parseAllDistancesKm(dump);
-    return kms.size() >= 2 ? kms.get(1) : 0f;
+    return OfferTextParser.parseDropKm(dump);
   }
 
   /** Letters left after fare and distance are removed. Empty when the card has no address. */
   private static String cardMark(String text) {
-    if (text == null || text.isEmpty()) return "";
-    String stripped = text.toLowerCase(Locale.US)
-        .replaceAll("(?:₹|rs\\.?|inr)\\s*\\d+(?:\\.\\d+)?", " ")
-        .replaceAll("\\d+(?:\\.\\d+)?\\s*(?:k\\s*m|m)\\b", " ")
-        .replaceAll("[^a-z\\u0900-\\u0dff]+", " ")
-        .trim();
-    if (stripped.length() < 6) return "";
-    return stripped.length() > 64 ? stripped.substring(0, 64) : stripped;
+    return OfferTextParser.cardMark(text);
   }
 
   /** Pickup km: labeled pickup first, else first on-screen distance (meters→km). */
   private static float parsePickupKm(String dump) {
-    if (dump == null || dump.isEmpty()) return 0f;
-    Matcher labeled = PICKUP_DIST.matcher(dump);
-    if (labeled.find()) {
-      return distToKm(labeled.group(1), labeled.group(2));
-    }
-    List<Float> kms = parseAllDistancesKm(dump);
-    return kms.isEmpty() ? 0f : kms.get(0);
-  }
-
-  /** Distances in km in on-screen order. "800 m" → 0.8. First is pickup. */
-  private static List<Float> parseAllDistancesKm(String dump) {
-    List<Float> out = new ArrayList<>();
-    if (dump == null || dump.isEmpty()) return out;
-    Matcher m = DIST_ANY.matcher(dump);
-    while (m.find()) {
-      float km = distToKm(m.group(1), m.group(2));
-      if (km > 0f) out.add(km);
-    }
-    return out;
-  }
-
-  private static float distToKm(String number, String unit) {
-    double v = parseLooseDouble(number);
-    if (v <= 0) return 0f;
-    String u = unit != null ? unit.toLowerCase(Locale.US).replace(" ", "") : "km";
-    if ("m".equals(u)) {
-      if (v > 20000) return 0f;
-      return (float) (v / 1000.0);
-    }
-    return (float) v;
+    return OfferTextParser.parsePickupKm(dump);
   }
 
   /** Window dump around Accept — used when near-node walk missed fare/km. */
@@ -5557,17 +5777,6 @@ public class AutoClickerService extends AccessibilityService {
   /** First km value in text (pickup). 0 if none. */
   private static float parseFirstKm(String dump) {
     return parsePickupKm(dump);
-  }
-
-  private static double parseLooseDouble(String text) {
-    if (text == null) return 0;
-    String cleaned = text.replaceAll("[^0-9.]", "");
-    if (cleaned.isEmpty() || cleaned.equals(".")) return 0;
-    try {
-      return Double.parseDouble(cleaned);
-    } catch (Exception e) {
-      return 0;
-    }
   }
 
   // ─── Gesture / helpers ────────────────────────────────────────────────────
@@ -5705,7 +5914,8 @@ public class AutoClickerService extends AccessibilityService {
 
   /**
    * Rapido: ready immediately.
-   * Ola: ready only after {@link #OLA_UNLOCK_FROM_ALERT_MS} from race arm (initial alert).
+   * Ola: "Accept in N" waits until the number clears. A plain Accept (no countdown)
+   * is tappable now — some zones never lock the button for 5 seconds.
    */
   private boolean isAcceptTapReady(AccessibilityNodeInfo node, CharSequence label, String pkg) {
     if (parseAcceptInCountdown(label) > 0) {
@@ -5730,9 +5940,9 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   /**
-   * Ola unlock: "Accept in N" is locked. After that countdown disappears, tap now.
-   * If we never saw numbers (progress bar only), wait 5s from first card sight.
-   * Never use node.isEnabled() — Ola Compose often reports disabled while tappable.
+   * Ola unlock: "Accept in N" is locked until the number clears.
+   * If this card never shows a countdown, the Accept label is live — tap now.
+   * A 5s wait is only a safety retry inside inject, for slider zones.
    */
   private boolean isOlaAcceptUnlocked(AccessibilityNodeInfo node, CharSequence label) {
     int countdown = parseAcceptInCountdown(label);
@@ -5743,9 +5953,7 @@ public class AutoClickerService extends AccessibilityService {
     if (olaSawCountdownThisRace) {
       return true;
     }
-    long start = olaAcceptFirstSeenMs > 0 ? olaAcceptFirstSeenMs : raceArmedFromMs;
-    if (start <= 0L) return false;
-    return SystemClock.uptimeMillis() - start >= OLA_UNLOCK_FROM_ALERT_MS;
+    return isRealAcceptLabel(label);
   }
 
   private static int parseAcceptInCountdown(CharSequence label) {
@@ -5759,7 +5967,7 @@ public class AutoClickerService extends AccessibilityService {
     }
   }
 
-  /** Warm Accept coords + keep arm alive while Ola waits alert+5s. Red box = target found. */
+  /** Warm Accept coords + keep arm alive while Ola waits card-sight+5s. */
   private void noteOlaAcceptPending(
       AccessibilityNodeInfo node, CharSequence label, String pkg, String tag) {
     long now = SystemClock.uptimeMillis();
@@ -5801,7 +6009,7 @@ public class AutoClickerService extends AccessibilityService {
           + " leftMs=" + Math.max(0, left)
           + " cardAgeMs=" + (now - start)
           + " shizuku=" + ShizukuInput.isReady()
-          + " — wait for slider; one Shizuku tap when Accept unlocks");
+          + " — tap now; 5s retry only if this Accept is still on screen");
     }
   }
 
@@ -6022,63 +6230,18 @@ public class AutoClickerService extends AccessibilityService {
 
   /** True if dump/notif text mentions an Accept CTA (EN / HI / TE / transliteration). */
   static boolean dumpHasAcceptCue(String original, String lowerOrSame) {
-    String h = lowerOrSame != null ? lowerOrSame : original;
-    if (h == null) return false;
-    if (h.contains("accept") || h.contains("slide")) return true;
-    String src = original != null ? original : h;
-    return src.contains("\u0938\u094d\u0935\u0940\u0915\u093e\u0930") // स्वीकार
-        || src.contains("\u090f\u0915\u094d\u0938\u0947\u092a\u094d\u091f") // एक्सेप्ट
-        || src.contains("\u0c05\u0c02\u0c17\u0c40\u0c15\u0c30\u0c3f\u0c02\u0c1a") // అంగీకరించ
-        || src.contains("\u0c38\u0c4d\u0c35\u0c40\u0c15\u0c30\u0c3f\u0c02\u0c1a") // స్వీకరించ
-        || src.contains("\u0c06\u0c2e\u0c4b\u0c26\u0c3f\u0c02\u0c1a") // ఆమోదించ
-        || src.contains("\u0b8f\u0bb1\u0bcd\u0bb1\u0bc1\u0b95\u0bcd\u0b95\u0bca\u0bb3") // ஏற்றுக்கொள்
-        || src.contains("\u0cb8\u0ccd\u0cb5\u0cc0\u0c95\u0cb0\u0cbf\u0cb8") // ಸ್ವೀಕರಿಸ
-        || src.contains("\u0ab8\u0acd\u0ab5\u0ac0\u0a95\u0abe\u0ab0") // સ્વીકાર
-        || src.contains("\u0997\u09cd\u09b0\u09b9\u09a3"); // গ্রহণ
+    return OfferTextParser.dumpHasAcceptCue(original, lowerOrSame);
   }
 
   static boolean isSpamText(String hay) {
-    if (hay == null || hay.isEmpty()) return false;
-    // Never spam-filter a trip offer.
-    if (hasTripOfferCue(hay)) return false;
-    return hay.contains("completed order") || hay.contains("total earning")
-        || hay.contains("accepted orders") || hay.contains("login") || hay.contains("otp")
-        || hay.contains("password") || hay.contains("wallet") || hay.contains("cashout")
-        || hay.contains("payout") || hay.contains("rate your")
-        || hay.contains("update available") || hay.contains("battery")
-        || hay.contains("document") || hay.contains("training")
-        || hay.contains("incentive") || hay.contains("bonus")
-        || hay.contains("challenge") || hay.contains("go online") || hay.contains("you're online")
-        || hay.contains("you are online") || hay.contains("offline") || hay.contains("duty")
-        || hay.contains("kyc") || hay.contains("tip received") || hay.contains("payment received")
-        || hay.contains("weekly") || hay.contains("leaderboard") || hay.contains("referral")
-        || hay.contains("promotion") || hay.contains("offer ends") || hay.contains("recharge");
+    return OfferTextParser.isSpamText(hay);
   }
 
   /**
    * Words that mean a live trip offer.
    */
   static boolean hasTripOfferCue(String text) {
-    if (text == null || text.isEmpty()) return false;
-    String h = text.toLowerCase(Locale.US);
-    return h.contains("accept")
-        || h.contains("\u0938\u094d\u0935\u0940\u0915\u093e\u0930") // स्वीकार
-        || h.contains("\u0c05\u0c02\u0c17\u0c40\u0c15\u0c30\u0c3f\u0c02\u0c1a") // అంగీకరించ
-        || h.contains("\u0c38\u0c4d\u0c35\u0c40\u0c15\u0c30\u0c3f\u0c02\u0c1a") // స్వీకరించ
-        || h.contains("\u090f\u0915\u094d\u0938\u0947\u092a\u094d\u091f") // एक्सेप्ट
-        || h.contains("₹")
-        || h.contains("new order") || h.contains("new ride") || h.contains("ride request")
-        || h.contains("new trip") || h.contains("trip request") || h.contains("new booking")
-        || h.contains("new request") || h.contains("incoming trip") || h.contains("incoming request")
-        || h.contains("pickup") || h.contains("pick up")
-        || h.contains("trip for you") || h.contains("opportunity")
-        || h.contains("ride offer") || h.contains("order request")
-        || ((h.contains("trip") || h.contains("request") || h.contains("ride"))
-            && (h.contains("km") || h.contains("min") || h.contains("cash")
-                || h.contains("bike") || h.contains("auto") || h.contains("fare")
-                || h.contains("rs") || h.matches(".*\\d.*")))
-        || ((h.contains("cash") || h.contains("bike") || h.contains("auto"))
-            && (h.contains("km") || h.contains("min") || h.contains("₹") || h.contains("rs")));
+    return OfferTextParser.hasTripOfferCue(text);
   }
 
   /**
@@ -6086,19 +6249,7 @@ public class AutoClickerService extends AccessibilityService {
    * {@link #hasTripOfferCue} already matched.
    */
   static boolean isDriverStatusPing(String pkg, String text, boolean ongoing) {
-    if (hasTripOfferCue(text)) return false;
-    String h = text != null ? text.toLowerCase(Locale.US).trim() : "";
-    if (h.contains("you're online") || h.contains("you are online")
-        || h.contains("go online") || h.contains("offline")
-        || h.contains("login") || h.contains("otp") || h.contains("kyc")
-        || h.contains("document") || h.contains("training")
-        || h.contains("update available") || h.contains("leaderboard")
-        || h.contains("referral") || h.contains("wallet")
-        || h.contains("total earning") || h.contains("weekly")
-        || h.contains("duty")) {
-      return true;
-    }
-    return false;
+    return OfferTextParser.isDriverStatusPing(pkg, text, ongoing);
   }
 
   /**
@@ -6113,45 +6264,7 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   static boolean looksLikeRideOffer(String text) {
-    if (text == null || text.trim().isEmpty()) {
-      return false;
-    }
-    if (hasTripOfferCue(text)) return true;
-    String h = text.toLowerCase(Locale.US).trim();
-    if (isSpamText(h)) return false;
-    if (dumpHasAcceptCue(text, h)) return true;
-    if (h.contains("new order") || h.contains("new ride") || h.contains("ride request")
-        || h.contains("new trip") || h.contains("trip request") || h.contains("incoming trip")
-        || h.contains("new booking") || h.contains("booking request")
-        || h.contains("new request") || h.contains("trip alert")
-        || h.contains("forwarded") || h.contains("opportunity")
-        || h.contains("accept in") || h.contains("1 ride")) {
-      return true;
-    }
-    if (h.contains("incoming") || h.contains("order request") || h.contains("ride offer")) {
-      return true;
-    }
-    if (h.contains("pickup") || h.contains("pick up") || h.contains("drop")) return true;
-    if (h.contains("booking") && (h.contains("₹") || h.contains("km") || h.contains("rs"))) {
-      return true;
-    }
-    // Hindi / Telugu Captain notification cues (common on regional phones)
-    if (text.contains("\u0928\u092f\u093e \u0911\u0930\u094d\u0921\u0930") // नया ऑर्डर
-        || text.contains("\u0928\u092f\u0940 \u0930\u093e\u0907\u0921") // नई राइड
-        || text.contains("\u092a\u093f\u0915\u0905\u092a") // पिकअप
-        || text.contains("\u0930\u093e\u0907\u0921 \u0930\u093f\u0915\u094d\u0935\u0947\u0938\u094d\u091f") // राइड रिक्वेस्ट
-        || text.contains("\u0c15\u0c4a\u0c24\u0c4d\u0c24 \u0c06\u0c30\u0c4d\u0c21\u0c30\u0c4d") // కొత్త ఆర్డర్
-        || text.contains("\u0c15\u0c4a\u0c24\u0c4d\u0c24 \u0c30\u0c48\u0c21\u0c4d") // కొత్త రైడ్
-        || text.contains("\u0c2a\u0c3f\u0c15\u0c2a\u0c4d")) { // పికప్
-      return true;
-    }
-    // Fare or distance alone is a typical Captain ride heads-up
-    if ((h.contains("₹") || h.contains("rs.") || h.contains("rs ") || h.contains("inr"))
-        && h.matches(".*\\d.*")) {
-      return true;
-    }
-    if (h.contains("km") && h.matches(".*\\d.*")) return true;
-    return false;
+    return OfferTextParser.looksLikeRideOffer(text);
   }
 
 
@@ -6231,6 +6344,11 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   private void clearPendingAcceptHistory() {
+    if (pendingHistoryValid
+        || acceptOutcomes.state() == AcceptAttemptTracker.State.PENDING_VERIFICATION
+        || acceptOutcomes.state() == AcceptAttemptTracker.State.ATTEMPTED) {
+      acceptOutcomes.beginNewOffer(SystemClock.uptimeMillis());
+    }
     pendingHistoryValid = false;
     pendingHistoryPkg = null;
     pendingHistoryMs = 0;
@@ -6250,8 +6368,8 @@ public class AutoClickerService extends AccessibilityService {
   }
 
   /**
-   * Remember strike metrics and emit immediately so ride 2/3 count even if
-   * VERIFY later sees the next card's Accept and treats this as a miss.
+   * Remember strike metrics after a dispatch. Does not emit AcceptConfirmed
+   * and does not increment the confirmed-ride count.
    */
   private void stashPendingAcceptHistory(String packageName, int findToClickMs) {
     if (raceEmitted) return;
@@ -6259,15 +6377,45 @@ public class AutoClickerService extends AccessibilityService {
     pendingHistoryPkg = packageName != null ? packageName : lastPkg;
     pendingHistoryMs = bestDisplayedLatency(findToClickMs);
     pendingHistoryFare = lastRideFare;
-    emitAcceptNow("strike");
+    long id = acceptOutcomes.noteDispatched(SystemClock.uptimeMillis());
+    Log.i(TAG, "ACCEPT_ATTEMPT id=" + id
+        + " state=" + acceptOutcomes.state()
+        + " attempts=" + acceptOutcomes.attemptCount()
+        + " confirmed=" + acceptOutcomes.confirmedCount());
   }
 
+  private void noteAttemptUncertain(AcceptAttemptTracker.Evidence evidence, String reason) {
+    AcceptAttemptTracker.State next = acceptOutcomes.submit(evidence, SystemClock.uptimeMillis());
+    Log.i(TAG, "ACCEPT_OUTCOME id=" + acceptOutcomes.attemptId()
+        + " state=" + next
+        + " evidence=" + evidence
+        + " reason=" + reason
+        + " attempts=" + acceptOutcomes.attemptCount()
+        + " confirmed=" + acceptOutcomes.confirmedCount());
+  }
+
+  private void noteAttemptFailed(AcceptAttemptTracker.Evidence evidence, String reason) {
+    AcceptAttemptTracker.State next = acceptOutcomes.submit(evidence, SystemClock.uptimeMillis());
+    Log.i(TAG, "ACCEPT_OUTCOME id=" + acceptOutcomes.attemptId()
+        + " state=" + next
+        + " evidence=" + evidence
+        + " reason=" + reason
+        + " attempts=" + acceptOutcomes.attemptCount()
+        + " confirmed=" + acceptOutcomes.confirmedCount());
+  }
+
+  /**
+   * Emit AcceptConfirmed only after the tracker consumed a real confirmation.
+   * Dispatch success and Accept-gone never reach this path today.
+   */
   private void emitAcceptNow(String reason) {
     if (raceEmitted || !pendingHistoryValid) return;
+    if (!acceptOutcomes.canEmitConfirmed()) return;
     long now = SystemClock.uptimeMillis();
     if (lastEmitAtMs > 0 && now - lastEmitAtMs < 250) {
       return;
     }
+    if (!acceptOutcomes.consumeConfirmedIncrement()) return;
     raceEmitted = true;
     lastEmitAtMs = now;
     final String pkg = pendingHistoryPkg != null ? pendingHistoryPkg : lastPkg;
@@ -6276,16 +6424,24 @@ public class AutoClickerService extends AccessibilityService {
     final String mode = AutoClickerConfig.isNuclearMode() ? "Nuclear" : "Standard";
     try {
       AutoClickerModule.emitRideAccepted(pkg, 0, "AcceptConfirmed", ms, mode);
-      Log.i(TAG, "ACCEPT_EMIT reason=" + reason + " pkg=" + pkg + " ms=" + ms + " n=" + count);
+      Log.i(TAG, "ACCEPT_EMIT reason=" + reason
+          + " pkg=" + pkg
+          + " ms=" + ms
+          + " n=" + count
+          + " id=" + acceptOutcomes.attemptId()
+          + " state=" + acceptOutcomes.state());
     } catch (Exception ignored) {
     }
   }
 
   /**
-   * VERIFY success path — emit only if the strike emit was skipped.
+   * Confirmed-history flush. No-ops unless the tracker has unused CONFIRMED.
    */
   private void flushConfirmedAcceptHistory(String reason) {
     if (raceEmitted || !pendingHistoryValid) {
+      return;
+    }
+    if (!acceptOutcomes.canEmitConfirmed()) {
       return;
     }
     emitAcceptNow(reason);
@@ -6398,7 +6554,7 @@ public class AutoClickerService extends AccessibilityService {
   public boolean onUnbind(android.content.Intent intent) {
     Log.w(TAG, "A11Y_UNBIND — keep engine");
     Context ctx = getApplicationContext();
-    if (AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled()) {
+    if (AutoClickerConfig.isEnabled()) {
       EngineKeepAlive.ensureStarted(ctx);
       WatchdogAlarm.schedule(ctx);
     }

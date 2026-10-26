@@ -16,6 +16,13 @@ import {
   placeSubscriptionOrder,
 } from '../services/api';
 import { replaceRoot } from '../navigation/rootNavigation';
+import {
+  formatUpiAmount,
+  isWhatsAppGroupInvite,
+  openUpiApp,
+  paymentMessage,
+  whatsAppPayUrl,
+} from '../services/upiPay';
 
 const PLAN_STYLE = {
   trial: {
@@ -64,7 +71,7 @@ export default function PlansScreen({ navigation }) {
   const [plans, setPlans] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [openingTelegram, setOpeningTelegram] = useState(false);
+  const [paying, setPaying] = useState(false);
   const [paymentContact, setPaymentContact] = useState(null);
   const [pendingOrder, setPendingOrder] = useState(null);
   const plan = plans.find(p => p.id === selected);
@@ -104,48 +111,87 @@ export default function PlansScreen({ navigation }) {
     }, [loadPlans])
   );
 
-  const handlePay = async () => {
-    if (!plan) return;
+  const ensureOrder = async (user) => {
+    if (pendingOrder?.planId === plan.id) return pendingOrder;
+    const placed = await placeSubscriptionOrder(user.phone, plan.id);
+    setPendingOrder(placed.order);
+    return placed.order;
+  };
+
+  const payWithUpi = async () => {
+    if (!plan || paying) return;
     const user = await getStoredUser();
     if (!user?.phone) {
       Alert.alert('Login Required', 'Please enter your phone number first.');
       navigation.replace('Login');
       return;
     }
-
-    let telegramUrl = paymentContact?.telegramUrl;
+    setPaying(true);
     try {
-      const latest = await getPaymentContact();
-      setPaymentContact(latest);
-      telegramUrl = latest?.telegramUrl;
-    } catch {
-      // Use last fetched contact if the refresh fails
-    }
-    setOpeningTelegram(true);
-    try {
-      const placed = await placeSubscriptionOrder(user.phone, plan.id);
-      setPendingOrder(placed.order);
-    } catch (err) {
-      setOpeningTelegram(false);
-      Alert.alert('Could not place the order', err.message || 'Please try again.');
-      return;
-    }
-    try {
-      if (!telegramUrl) {
+      await ensureOrder(user);
+      if (!paymentContact?.upiId) {
         Alert.alert(
-          'Order placed. Awaiting confirmation.',
-          'Your plan is waiting for an admin to confirm it. The Telegram payment link is not set yet.'
+          'Scan the QR',
+          'Open PhonePe, Paytm, or any UPI app and scan the scanner at the top.'
         );
         return;
       }
-      await Linking.openURL(telegramUrl);
+      await openUpiApp('any', {
+        pa: paymentContact.upiId,
+        pn: paymentContact.payeeName || 'AG Rider',
+        am: formatUpiAmount(plan.amount),
+        tn: `AG Rider ${plan.label} ${String(user.phone).slice(-4)}`.slice(0, 50),
+      });
     } catch (err) {
       Alert.alert(
-        'Order placed. Awaiting confirmation.',
-        err.message || 'Telegram did not open. An admin can still confirm this order after payment.'
+        'UPI app did not open',
+        err?.message || 'Scan the QR at the top with PhonePe, Paytm, or any UPI app.'
       );
     } finally {
-      setOpeningTelegram(false);
+      setPaying(false);
+    }
+  };
+
+  const handlePaidWhatsApp = async () => {
+    const user = await getStoredUser();
+    if (!user?.phone) {
+      Alert.alert('Login Required', 'Please enter your phone number first.');
+      navigation.replace('Login');
+      return;
+    }
+    try {
+      if (plan) await ensureOrder(user);
+    } catch (err) {
+      Alert.alert('Could not place the order', err.message || 'Please try again.');
+      return;
+    }
+    const text = paymentMessage({
+      planLabel: plan?.label || pendingOrder?.planLabel || 'plan',
+      price: plan?.price || pendingOrder?.priceDisplay || '',
+      phone: user.phone,
+    });
+    const groupUrl = paymentContact?.whatsappGroupUrl || '';
+    try {
+      await Linking.openURL(whatsAppPayUrl(groupUrl, text));
+      if (isWhatsAppGroupInvite(groupUrl)) {
+        Alert.alert(
+          'Send this in the group',
+          'WhatsApp opened with “I have paid”. Send that message in the payment group. Access starts after we verify it.'
+        );
+      }
+    } catch (err) {
+      if (isWhatsAppGroupInvite(groupUrl)) {
+        try {
+          await Linking.openURL(groupUrl);
+          return;
+        } catch {
+          // Fall through to the alert below.
+        }
+      }
+      Alert.alert(
+        'WhatsApp did not open',
+        `${text}\n\nSend that message in the payment WhatsApp group.`
+      );
     }
   };
 
@@ -179,8 +225,8 @@ export default function PlansScreen({ navigation }) {
 
       <AppHeader
         eyebrow="MEMBERSHIP"
-        title="Pick a plan"
-        subtitle="Pay on Telegram. Your access starts after confirmation."
+        title="Renew"
+        subtitle="Scan, pay in your UPI app, then message WhatsApp."
       />
 
       <ScrollView
@@ -195,7 +241,27 @@ export default function PlansScreen({ navigation }) {
           />
         }
       >
-        <SectionTitle label="PLANS" title="Select a duration" />
+        <View style={styles.checkout}>
+          <Text style={styles.checkoutTitle}>1. Scan to pay {plan?.price}</Text>
+          {paymentContact?.imageUrl ? (
+            <Image
+              key={paymentContact.imageUrl}
+              source={{ uri: paymentContact.imageUrl, cache: 'reload' }}
+              style={styles.paymentImage}
+              resizeMode="contain"
+              accessibilityLabel="Payment scanner"
+            />
+          ) : (
+            <Text style={styles.checkoutText}>
+              The payment scanner is not uploaded yet. Use Pay with UPI after a plan is selected.
+            </Text>
+          )}
+          {!!paymentContact?.upiId && (
+            <Text style={styles.upiId}>UPI ID · {paymentContact.upiId}</Text>
+          )}
+        </View>
+
+        <SectionTitle label="PLANS" title="2. Choose a plan" />
         {plans.map(p => {
           const isSelected = selected === p.id;
           return (
@@ -249,58 +315,36 @@ export default function PlansScreen({ navigation }) {
           </View>
         ) : null}
 
-        <SectionTitle label="YOUR SELECTION" title="Plan summary" />
-        <View style={styles.summary}>
-          <Text style={styles.summaryTitle}>Order Summary</Text>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>{plan?.label}</Text>
-            <Text style={styles.summaryValue}>{plan?.price}</Text>
-          </View>
-          <View style={[styles.summaryRow, styles.summaryTotalRow]}>
-            <Text style={styles.summaryTotalLabel}>Total</Text>
-            <Text style={[styles.summaryTotalValue, { color: plan?.accent }]}>{plan?.price}</Text>
-          </View>
-        </View>
-
         <TouchableOpacity
           style={[
             styles.payBtn,
             { backgroundColor: plan?.accent || colors.purple },
-            openingTelegram && { opacity: 0.7 },
+            paying && { opacity: 0.7 },
           ]}
-          onPress={handlePay}
-          disabled={openingTelegram || !plan}
+          onPress={payWithUpi}
+          disabled={paying || !plan}
           activeOpacity={0.85}
         >
-          {openingTelegram ? (
+          {paying ? (
             <ActivityIndicator color={colors.background} size="large" />
           ) : (
-            <Text style={styles.payBtnText}>Continue on Telegram — {plan?.price}</Text>
+            <Text style={styles.payBtnText}>3. Pay {plan?.price} with your UPI app</Text>
           )}
         </TouchableOpacity>
+        <Text style={styles.checkoutHint}>
+          Android asks which app to use — PhonePe, Paytm, Google Pay, or any other UPI app. The amount is filled in.
+        </Text>
 
-        <View style={styles.telegramNote}>
-          <Text style={styles.telegramNoteTitle}>Payment assistance on Telegram</Text>
-          <Text style={styles.telegramNoteText}>
-            Send your mobile number and selected plan to the payment contact. Your plan will be activated after confirmation.
-          </Text>
-        </View>
+        <TouchableOpacity style={styles.whatsAppBtn} onPress={handlePaidWhatsApp}>
+          <Text style={styles.whatsAppBtnText}>4. I have paid — message WhatsApp</Text>
+        </TouchableOpacity>
+        <Text style={styles.checkoutHint}>
+          WhatsApp opens with “I have paid for {plan?.label}”. Send it in the payment group. The plan starts after that payment is verified.
+        </Text>
 
         <TouchableOpacity onPress={() => replaceRoot(navigation, 'Main')} style={styles.skipBtn}>
           <Text style={styles.skipText}>Skip for now →</Text>
         </TouchableOpacity>
-
-        {!!paymentContact?.imageUrl && (
-          <View style={styles.paymentImageCard}>
-            <Image
-              key={paymentContact.imageUrl}
-              source={{ uri: paymentContact.imageUrl, cache: 'reload' }}
-              style={styles.paymentImage}
-              resizeMode="contain"
-              accessibilityLabel="Payment information"
-            />
-          </View>
-        )}
       </ScrollView>
     </Screen>
   );
@@ -371,10 +415,24 @@ const styles = StyleSheet.create({
   },
   telegramNoteTitle: { color: colors.purpleBright, fontSize: 14, fontWeight: '800' },
   telegramNoteText: { color: colors.icyDim, fontSize: 12, lineHeight: 18 },
+  checkout: {
+    backgroundColor: colors.surfaceCard, borderRadius: 24, padding: 16, gap: 12,
+  },
+  checkoutTitle: { color: colors.icy, fontSize: 18, fontWeight: '800' },
+  checkoutText: { color: colors.icyDim, fontSize: 13, lineHeight: 18 },
+  checkoutHint: { color: colors.icyMuted, fontSize: 12, lineHeight: 18 },
+  upiId: { color: colors.icy, fontSize: 13, fontWeight: '700' },
+  upiRow: { flexDirection: 'row', gap: 8 },
+  upiBtn: {
+    flex: 1, backgroundColor: colors.surfaceLight, borderRadius: 999,
+    paddingVertical: 14, alignItems: 'center',
+  },
+  upiBtnText: { color: colors.icy, fontSize: 14, fontWeight: '800' },
+  whatsAppBtn: {
+    backgroundColor: '#25D366', borderRadius: 999, paddingVertical: 16, alignItems: 'center',
+  },
+  whatsAppBtnText: { color: '#052e16', fontSize: 15, fontWeight: '800' },
   skipBtn: { alignItems: 'center', paddingVertical: 10 },
   skipText: { color: colors.icyDim, fontSize: 14, fontWeight: '600' },
-  paymentImageCard: {
-    backgroundColor: colors.surfaceCard, borderRadius: 22, padding: 10, overflow: 'hidden',
-  },
-  paymentImage: { width: '100%', height: 280, borderRadius: 16 },
+  paymentImage: { width: '100%', height: 280, borderRadius: 16, backgroundColor: '#fff' },
 });

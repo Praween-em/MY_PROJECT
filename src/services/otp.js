@@ -176,7 +176,10 @@ export async function sendOtp(phone10) {
   return { reqId, accessToken: null, response, alreadyVerified: false };
 }
 
-export async function retryOtp(reqId, retryChannel) {
+/** MSG91 channel codes: SMS=11, VOICE=4, EMAIL=3, WHATSAPP=12 */
+export const OTP_CHANNEL_SMS = 11;
+
+export async function retryOtp(reqId, retryChannel = OTP_CHANNEL_SMS) {
   if (!initOtpWidget()) {
     throw new Error('OTP is not configured');
   }

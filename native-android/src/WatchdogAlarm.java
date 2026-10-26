@@ -25,7 +25,9 @@ public class WatchdogAlarm extends BroadcastReceiver {
     if (context == null) return;
     Context ctx = context.getApplicationContext();
     AutoClickerConfig.ensureInit(ctx);
-    if (!AutoClickerConfig.peekEnabled() && !AutoClickerConfig.isEnabled()) return;
+    if (!AutoClickerConfig.isRequestedEnabled()
+        && !AutoClickerConfig.peekEnabled()
+        && !AutoClickerConfig.isEnabled()) return;
     try {
       AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
       if (am == null) return;
@@ -66,7 +68,9 @@ public class WatchdogAlarm extends BroadcastReceiver {
   public void onReceive(Context context, Intent intent) {
     if (context == null) return;
     AutoClickerConfig.init(context);
-    if (!AutoClickerConfig.peekEnabled() && !AutoClickerConfig.isEnabled()) {
+    if (!AutoClickerConfig.isRequestedEnabled()
+        && !AutoClickerConfig.peekEnabled()
+        && !AutoClickerConfig.isEnabled()) {
       cancel(context);
       return;
     }

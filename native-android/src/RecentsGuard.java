@@ -3,8 +3,9 @@ package com.ridio.app;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Log;
 
 /**
@@ -21,7 +22,9 @@ public class RecentsGuard extends Service {
     if (context == null) return;
     Context ctx = context.getApplicationContext();
     AutoClickerConfig.ensureInit(ctx);
-    if (!AutoClickerConfig.peekEnabled() && !AutoClickerConfig.isEnabled()) return;
+    if (!AutoClickerConfig.isRequestedEnabled()
+        && !AutoClickerConfig.peekEnabled()
+        && !AutoClickerConfig.isEnabled()) return;
     Intent i = new Intent(ctx, RecentsGuard.class);
     i.setAction(ACTION_START);
     try {
@@ -53,7 +56,9 @@ public class RecentsGuard extends Service {
       stopSelf();
       return START_NOT_STICKY;
     }
-    if (!AutoClickerConfig.peekEnabled() && !AutoClickerConfig.isEnabled()) {
+    if (!AutoClickerConfig.isRequestedEnabled()
+        && !AutoClickerConfig.peekEnabled()
+        && !AutoClickerConfig.isEnabled()) {
       stopSelf();
       return START_NOT_STICKY;
     }
@@ -61,25 +66,26 @@ public class RecentsGuard extends Service {
     return START_STICKY;
   }
 
+  private static final Handler MAIN = new Handler(Looper.getMainLooper());
+
   @Override
   public void onTaskRemoved(Intent rootIntent) {
-    Log.w(TAG, "onTaskRemoved — UI swiped; keeping engine");
+    Log.w(TAG, "onTaskRemoved — UI swiped; keeping :engine only");
     AutoClickerConfig.ensureInit(this);
-    if (AutoClickerConfig.peekEnabled() || AutoClickerConfig.isEnabled()) {
-      EngineKeepAlive.ensureStarted(getApplicationContext());
-      WatchdogAlarm.schedule(getApplicationContext());
-      try {
-        Intent restart = new Intent(getApplicationContext(), RecentsGuard.class);
-        restart.setAction(ACTION_START);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-          // Guard itself is not FGS; KeepAlive in :engine is.
-          getApplicationContext().startService(restart);
-        } else {
-          startService(restart);
+    final Context app = getApplicationContext();
+    final boolean keep = AutoClickerConfig.isRequestedEnabled()
+        || AutoClickerConfig.peekEnabled()
+        || AutoClickerConfig.isEnabled();
+    if (keep) {
+      // Do not restart RecentsGuard in the dying UI task — that loop caused ANRs.
+      MAIN.post(() -> {
+        try {
+          EngineKeepAlive.ensureStarted(app);
+          WatchdogAlarm.schedule(app);
+        } catch (Throwable t) {
+          Log.w(TAG, "rearm after swipe: " + t.getMessage());
         }
-      } catch (Throwable t) {
-        Log.w(TAG, "rearm after swipe: " + t.getMessage());
-      }
+      });
     }
     super.onTaskRemoved(rootIntent);
   }
